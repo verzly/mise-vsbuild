@@ -1,0 +1,6 @@
+[tools]
+lua = "latest"
+
+[tasks.test-readme]
+description = "Print basic README information"
+run = "powershell -NoProfile -Command \"Get-Content README.md -TotalCount 20\""
