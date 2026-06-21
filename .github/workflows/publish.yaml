@@ -1,0 +1,89 @@
+name: Generate and publish manifest
+
+on:
+  push:
+    tags: [ 'v*' ]
+
+permissions:
+  contents: write
+
+jobs:
+  generate-manifest-json:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set release variables
+        run: |
+          echo "REPO_NAME=$(echo ${{ github.repository }} | cut -d'/' -f2)" >> "$GITHUB_ENV"
+          echo "VERSION=$(echo ${{ github.ref }} | cut -d'/' -f3 | cut -c2-)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+
+      - name: Set up Lua
+        uses: leafo/gh-actions-lua@v8
+        with:
+          luaVersion: '5.3.5'
+
+      - name: Install Lua dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y luarocks
+          sudo luarocks install dkjson
+
+      - name: Generate manifest
+        run: |
+          lua -e '
+          require("metadata")
+          local dkjson = require("dkjson")
+          PLUGIN.downloadUrl = "https://github.com/${{ github.repository }}/releases/download/v${{ env.VERSION }}/${{ env.REPO_NAME }}-${{ env.VERSION }}.zip"
+          local str = dkjson.encode(PLUGIN, { indent = true })
+          print(str)' > manifest.json
+          cat manifest.json
+
+      - name: Upload manifest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: manifest
+          path: manifest.json
+
+  release-plugin-and-manifest:
+    needs: generate-manifest-json
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set release variables
+        run: |
+          echo "REPO_NAME=$(echo ${{ github.repository }} | cut -d'/' -f2)" >> "$GITHUB_ENV"
+          echo "VERSION=$(echo ${{ github.ref }} | cut -d'/' -f3 | cut -c2-)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+
+      - name: Download manifest artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: manifest
+
+      - name: Build plugin archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          zip -r "${REPO_NAME}-${VERSION}.zip" . \
+            -x '.git/*' \
+            -x 'manifest.json' \
+            -x '*.zip'
+          unzip -l "${REPO_NAME}-${VERSION}.zip"
+
+      - name: Publish plugin release archive
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: ./${{ env.REPO_NAME }}-${{ env.VERSION }}.zip
+          tag: v${{ env.VERSION }}
+          file_glob: true
+
+      - name: Publish plugin manifest
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: ./manifest.json
+          tag: manifest
+          overwrite: true
+          file_glob: true

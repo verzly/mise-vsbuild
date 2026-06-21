@@ -1,0 +1,209 @@
+name: Test VS Build Tools Plugin
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_install_smoke:
+        description: Run the optional Windows install smoke test. This can be slow and may require Visual Studio installer elevation behavior.
+        required: true
+        type: boolean
+        default: false
+      install_version:
+        description: Visual Studio Build Tools version used by the optional install smoke test
+        required: true
+        default: '2022'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  VSBUILD_DISABLE_DISCOVERY: '1'
+
+jobs:
+  static-checks:
+    name: Static repository checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compile CI checks
+        run: rustc .github/scripts/ci-checks.rs -o ci-checks
+
+      - name: Run static checks
+        run: ./ci-checks static
+
+  lua-syntax:
+    name: Lua syntax checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Lua
+        uses: leafo/gh-actions-lua@v8
+        with:
+          luaVersion: '5.3.5'
+
+      - name: Check Lua files
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' file; do
+            echo "Checking $file"
+            luac -p "$file"
+          done < <(find . -name '*.lua' -not -path './.git/*' -print0)
+
+  mise-plugin-smoke:
+    name: mise plugin smoke - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compile CI checks
+        shell: bash
+        run: |
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            rustc .github/scripts/ci-checks.rs -o ci-checks.exe
+          else
+            rustc .github/scripts/ci-checks.rs -o ci-checks
+          fi
+
+      - name: Install mise
+        uses: jdx/mise-action@v4
+        with:
+          install: false
+          cache: false
+
+      - name: Register plugin from source
+        run: mise plugin link vsbuild "${{ github.workspace }}"
+
+      - name: Check version listing
+        shell: bash
+        env:
+          VSBUILD_DISABLE_DISCOVERY: '1'
+        run: |
+          mise cache clean || true
+          mise ls-remote vsbuild | tee versions.txt
+
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            ./ci-checks.exe version-list versions.txt
+          else
+            ./ci-checks version-list versions.txt
+          fi
+
+      - name: Check env._.vsbuild options without installing Build Tools
+        shell: bash
+        run: |
+          cat > mise.toml <<'TOML'
+          [env._.vsbuild]
+          workloads = "Microsoft.VisualStudio.Workload.VCTools"
+          components = "Microsoft.VisualStudio.Component.VC.CMake.Project"
+          install_method = "winget"
+          include_recommended = false
+          include_optional = true
+          verbose = true
+          TOML
+
+          mise trust "${{ github.workspace }}" || true
+          mise env --dotenv | tee mise-env.out
+
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            ./ci-checks.exe env-options mise-env.out
+          else
+            ./ci-checks env-options mise-env.out
+          fi
+
+  powershell-dry-run:
+    name: PowerShell installer dry run - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compile CI checks
+        shell: bash
+        run: |
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            rustc .github/scripts/ci-checks.rs -o ci-checks.exe
+          else
+            rustc .github/scripts/ci-checks.rs -o ci-checks
+          fi
+
+      - name: Run installer dry run
+        shell: pwsh
+        run: |
+          $installPath = Join-Path $PWD '.tmp/vsbuild/2022'
+          ./bin/install-vsbuild.ps1 `
+            -Version '2022' `
+            -InstallPath $installPath `
+            -WingetId 'Microsoft.VisualStudio.2022.BuildTools' `
+            -Workloads 'Microsoft.VisualStudio.Workload.VCTools' `
+            -Components 'Microsoft.VisualStudio.Component.VC.CMake.Project' `
+            -InstallMethod 'winget' `
+            -IncludeRecommended `
+            -DryRun | Tee-Object -FilePath dry-run.json
+
+      - name: Check dry run output
+        shell: bash
+        run: |
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            ./ci-checks.exe dry-run dry-run.json
+          else
+            ./ci-checks dry-run dry-run.json
+          fi
+
+  install-smoke:
+    name: Optional Windows install smoke
+    if: github.event_name == 'workflow_dispatch' && inputs.run_install_smoke == true
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mise
+        uses: jdx/mise-action@v4
+        with:
+          install: false
+          cache: false
+
+      - name: Register plugin from source
+        run: mise plugin link vsbuild "${{ github.workspace }}"
+
+      - name: Install Visual Studio Build Tools through plugin
+        shell: pwsh
+        env:
+          MISE_DATA_DIR: ${{ runner.temp }}\mise-data
+          VSBUILD_VERBOSE: '1'
+        run: |
+          mise install vsbuild@${{ inputs.install_version }}
+          mise use -g vsbuild@${{ inputs.install_version }}
+          vsbuild-info
+          vsbuild-run where cl

@@ -33,7 +33,10 @@ The plugin is designed for projects that occasionally need MSVC without requirin
   - [Install method](#install-method)
   - [Future versions](#future-versions)
   - [Uninstall](#uninstall)
+- [Script layout and logging](#script-layout-and-logging)
 - [Debugging](#debugging)
+- [Testing](#testing)
+- [Release management](#release-management)
 - [Known Issues](#known-issues)
 - [Contributing](#contributing)
 - [License & Acknowledgments](#license--acknowledgments)
@@ -299,13 +302,13 @@ $env:VSBUILD_INCLUDE_OPTIONAL = '1'
 mise install vsbuild@2022
 ```
 
-Plugin option example in `mise.toml`:
+Plugin option example in `mise.toml`, following the same `env._.<tool>` option style used by mise plugins such as `mise-php`:
 
 ```toml
 [tools]
 vsbuild = "2022"
 
-[settings.vsbuild]
+[env._.vsbuild]
 workloads = "Microsoft.VisualStudio.Workload.VCTools"
 components = "Microsoft.VisualStudio.Component.VC.CMake.Project"
 include_recommended = true
@@ -397,6 +400,19 @@ vsbuild-uninstall
 mise uninstall vsbuild@current
 ```
 
+
+### Script layout and logging
+
+The PowerShell scripts are intentionally organized like the rest of the plugin instead of keeping all behavior in one large file. Shared behavior belongs under `bin/lib/`:
+
+```text
+bin/lib/log.ps1       # shared log formatting and command echoing
+bin/lib/common.ps1    # command, path, vswhere, and Visual Studio instance helpers
+bin/lib/helpers.ps1   # generated helper command wrappers
+```
+
+User-facing output should go through `Write-VsBuildLog`. This keeps the installer, update, uninstall, and list scripts visually consistent, and keeps emoji usage centralized instead of scattering symbols through every script.
+
 ## Debugging
 
 Enable verbose plugin output:
@@ -434,6 +450,63 @@ Disable discovery for deterministic behavior:
 ```powershell
 $env:VSBUILD_DISABLE_DISCOVERY = '1'
 mise ls-remote vsbuild
+```
+
+
+## Testing
+
+The project includes GitHub Actions and local smoke checks inspired by `mise-php`. PowerShell implementation details are split under `bin/` and reusable helpers live in `bin/lib/`, so installer, updater, uninstaller, and listing scripts share the same command execution and log formatting behavior.
+
+Default CI intentionally avoids installing the full Visual Studio Build Tools payload. The normal checks validate repository metadata, Lua syntax, mise plugin registration, version listing, plugin option export, and PowerShell installer argument generation through dry-run mode.
+
+Run the main local checks with:
+
+```sh
+rustc .github/scripts/ci-checks.rs -o ci-checks
+./ci-checks static
+mise plugin link vsbuild .
+VSBUILD_DISABLE_DISCOVERY=1 mise ls-remote vsbuild
+```
+
+PowerShell installer dry-run:
+
+```powershell
+./bin/install-vsbuild.ps1 `
+  -Version '2022' `
+  -InstallPath "$PWD/.tmp/vsbuild/2022" `
+  -WingetId 'Microsoft.VisualStudio.2022.BuildTools' `
+  -Workloads 'Microsoft.VisualStudio.Workload.VCTools' `
+  -Components 'Microsoft.VisualStudio.Component.VC.CMake.Project' `
+  -InstallMethod 'winget' `
+  -IncludeRecommended `
+  -DryRun
+```
+
+The full Windows install smoke test is available from the `Test VS Build Tools Plugin` workflow through manual `workflow_dispatch`. It is disabled by default because Visual Studio Build Tools installation is large and may be slow.
+
+## Release management
+
+Releases are tag-driven.
+
+Create a release tag:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The publish workflow builds a plugin ZIP named:
+
+```text
+mise-vsbuild-0.1.0.zip
+```
+
+It also generates `manifest.json` from `metadata.lua`, uploads the ZIP to the matching GitHub release, and publishes the manifest to the `manifest` release tag.
+
+After a GitHub release is published, the `Update latest tag` workflow moves the lightweight `latest` tag to the newest release commit. This keeps installation commands such as the following stable:
+
+```sh
+mise plugin install vsbuild https://github.com/verzly/mise-vsbuild#latest
 ```
 
 ## Known Issues

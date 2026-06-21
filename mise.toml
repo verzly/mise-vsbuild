@@ -1,6 +1,28 @@
 [tools]
-lua = "latest"
+lua = "5.3.5"
 
-[tasks.test-readme]
-description = "Print basic README information"
-run = "powershell -NoProfile -Command \"Get-Content README.md -TotalCount 20\""
+[tasks.static]
+description = "Run static repository checks"
+run = "rustc .github/scripts/ci-checks.rs -o ci-checks && ./ci-checks static"
+
+[tasks.lua-syntax]
+description = "Check Lua syntax"
+run = "find . -name '*.lua' -not -path './.git/*' -print0 | xargs -0 -n1 luac -p"
+
+[tasks.ls-remote]
+description = "List available Visual Studio Build Tools versions with discovery disabled"
+run = "VSBUILD_DISABLE_DISCOVERY=1 mise ls-remote vsbuild"
+
+[tasks.dry-run]
+description = "Run a PowerShell installer dry run for Visual Studio Build Tools 2022"
+run = """
+powershell -NoProfile -ExecutionPolicy Bypass -File ./bin/install-vsbuild.ps1 `
+  -Version '2022' `
+  -InstallPath "$PWD/.tmp/vsbuild/2022" `
+  -WingetId 'Microsoft.VisualStudio.2022.BuildTools' `
+  -Workloads 'Microsoft.VisualStudio.Workload.VCTools' `
+  -Components 'Microsoft.VisualStudio.Component.VC.CMake.Project' `
+  -InstallMethod 'winget' `
+  -IncludeRecommended `
+  -DryRun
+"""
