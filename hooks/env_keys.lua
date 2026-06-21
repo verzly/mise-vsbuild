@@ -4,7 +4,6 @@
 function PLUGIN:EnvKeys(ctx)
     local sdkInfo = ctx.sdkInfo["vsbuild"]
     local installDir = sdkInfo.path
-
     local binDir = installDir .. "\\bin"
 
     return {

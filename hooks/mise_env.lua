@@ -32,6 +32,11 @@ function PLUGIN:MiseEnv(ctx)
         set_env(env_vars, "VSBUILD_INSTALL_METHOD", install_method)
     end
 
+    local bootstrapper_url = options.get(ctx, "bootstrapper_url")
+    if bootstrapper_url ~= nil and bootstrapper_url ~= "" and bootstrapper_url ~= false then
+        set_env(env_vars, "VSBUILD_BOOTSTRAPPER_URL", bootstrapper_url)
+    end
+
     if options.disabled(options.get(ctx, "include_recommended")) then
         set_env(env_vars, "VSBUILD_NO_RECOMMENDED", 1)
     end
@@ -42,6 +47,10 @@ function PLUGIN:MiseEnv(ctx)
 
     if options.enabled(options.get(ctx, "verbose")) then
         set_env(env_vars, "VSBUILD_VERBOSE", 1)
+    end
+
+    if options.enabled(options.get(ctx, "dry_run")) then
+        set_env(env_vars, "VSBUILD_DRY_RUN", 1)
     end
 
     return env_vars

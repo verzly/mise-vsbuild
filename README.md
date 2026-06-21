@@ -10,11 +10,12 @@ It provides a mise-managed wrapper around Microsoft Visual Studio Build Tools, w
 - **Future year fallback** such as `vsbuild@2028` when Microsoft publishes a matching WinGet package
 - **C++ workload installation** through `Microsoft.VisualStudio.Workload.VCTools`
 - **Custom install paths** under the mise install directory
-- **Helper commands** for `vcvars64`, Visual Studio developer shells, `cl`, CMake, update, uninstall, and discovery
+- **Generated helper commands** for `vcvars64`, Visual Studio developer shells, `cl`, CMake, update, uninstall, and discovery
 
 The plugin is designed for projects that occasionally need MSVC without requiring Visual Studio IDE usage, such as Python native packages, `llama.cpp`, PyTorch-adjacent builds, Android/Tauri dependencies, or other native Windows build steps.
 
 - [How it works](#how-does-it-work)
+  - [Lua-first plugin design](#lua-first-plugin-design)
   - [Windows only](#windows-only)
   - [Automatic discovery](#automatic-discovery)
   - [Install path](#install-path)
@@ -33,7 +34,6 @@ The plugin is designed for projects that occasionally need MSVC without requirin
   - [Install method](#install-method)
   - [Future versions](#future-versions)
   - [Uninstall](#uninstall)
-- [Script layout and logging](#script-layout-and-logging)
 - [Debugging](#debugging)
 - [Testing](#testing)
 - [Release management](#release-management)
@@ -60,6 +60,27 @@ Microsoft.VisualStudio.Workload.VCTools
 ```
 
 By default, recommended components are included. This usually provides the MSVC x64/x86 toolchain, Windows SDK, C++ CMake tools, and related native build tooling expected by Python packages, CMake projects, and Windows-native build systems.
+
+### Lua-first plugin design
+
+The plugin intentionally keeps the implementation in Lua, following the same style as `mise-php`:
+
+```text
+hooks/available.lua
+hooks/pre_install.lua
+hooks/post_install.lua
+hooks/env_keys.lua
+hooks/mise_env.lua
+lib/env.lua
+lib/messages.lua
+lib/options.lua
+lib/versions.lua
+lib/system.lua
+lib/install.lua
+lib/helpers.lua
+```
+
+PowerShell scripts are not required for the main install flow. Lua builds the Visual Studio Installer command, invokes `winget` or the direct bootstrapper, verifies the resulting instance, and writes small `.cmd` helper commands into the installed tool directory.
 
 ### Windows only
 
@@ -133,9 +154,9 @@ This is expected Windows behavior. The plugin manages the selected Build Tools i
 
 ### Uninstall behavior
 
-The plugin provides a `vsbuild-uninstall` helper command that calls Visual Studio Installer with the instance install path. Use that before deleting the mise install directory.
+The plugin generates a `vsbuild-uninstall` helper command that calls Visual Studio Installer with the instance install path. Use that before deleting the mise install directory.
 
-`mise uninstall vsbuild@2022` may remove the mise directory, but mise's currently documented tool plugin hooks do not provide a Visual Studio-specific uninstall lifecycle hook. Because of that, `vsbuild-uninstall` is the safe path for removing the Microsoft-registered Build Tools instance.
+`mise uninstall vsbuild@2022` may remove the mise directory, but Visual Studio Installer should be used first so the Microsoft-registered Build Tools instance is removed cleanly.
 
 ## Get started
 
@@ -220,324 +241,198 @@ mise install vsbuild@current
 
 # Install specific known release lines
 mise install vsbuild@2026
-mise install vsbuild@26
 mise install vsbuild@2022
 mise install vsbuild@2019
 mise install vsbuild@2017
 
-# Attempt a future year-specific package once Microsoft publishes it
-mise install vsbuild@2028
+# Select globally
+mise use -g vsbuild@2022
 
-# Use globally
-mise use -g vsbuild@current
-
-# Use per project
-cd /path/to/project
+# Select locally for the current project
 mise use vsbuild@2022
 ```
 
-Version aliases:
-
-| Alias | Resolves to |
-|---|---|
-| `latest` | `current` |
-| `stable` | `current` |
-| `current` | `current` |
-| `18` / `26` | `2026` |
-| `17` / `22` | `2022` |
-| `16` / `19` | `2019` |
-| `15` | `2017` |
+`mise use vsbuild@2022` writes to the local `mise.toml`. `mise use -g vsbuild@2022` writes to the global mise config. A local project config can override the global default.
 
 ### Helper commands
 
-When `vsbuild` is active, the plugin adds the installed helper directory to `PATH`.
+After a version is installed and active, the plugin exposes generated helper commands through the mise shim/PATH mechanism:
 
 ```sh
 vsbuild-info
 vsbuild-list
+vsbuild-run
 vsbuild-shell
-vsbuild-run where cl
-vsbuild-cl /?
-vsbuild-cmake --version
+vsbuild-cl
+vsbuild-cmake
+vsdevcmd
+vcvars64
 vsbuild-update
 vsbuild-uninstall
 ```
 
-The helpers are intentionally prefixed with `vsbuild-` to avoid overriding system tools globally.
+The plugin intentionally does not add MSVC compiler internals directly to the global `PATH`. `cl.exe` needs the full Visual Studio developer environment, including `INCLUDE`, `LIB`, `LIBPATH`, Windows SDK paths, and other variables. Use the helper commands instead.
 
 ### Running commands inside MSVC environment
 
-To run a single command with `vcvars64.bat` loaded:
-
 ```sh
 vsbuild-run where cl
-vsbuild-run cl /?
+vsbuild-run cl
 vsbuild-run cmake --version
+vsbuild-run python -m pip install some-native-package
 ```
 
-To open a command prompt with the x64 MSVC environment loaded:
+For an interactive shell:
 
 ```sh
 vsbuild-shell
 ```
 
-Direct `cl.exe` discovery by build tools is sometimes sensitive to whether the caller expects `cl.exe` specifically or accepts a wrapper. For CMake or complex builds, prefer either `vsbuild-run` or a shell opened by `vsbuild-shell`.
-
 ### Custom workloads and components
 
-By default, the plugin installs:
+The default workload is:
 
 ```text
 Microsoft.VisualStudio.Workload.VCTools
 ```
 
-Recommended components are included by default. You can override workloads and components using environment variables or mise plugin options.
-
-Environment variable example:
-
-```powershell
-$env:VSBUILD_WORKLOADS = 'Microsoft.VisualStudio.Workload.VCTools'
-$env:VSBUILD_COMPONENTS = 'Microsoft.VisualStudio.Component.VC.CMake.Project,Microsoft.VisualStudio.Component.Windows11SDK.26100'
-$env:VSBUILD_INCLUDE_OPTIONAL = '1'
-mise install vsbuild@2022
-```
-
-Plugin option example in `mise.toml`, following the same `env._.<tool>` option style used by mise plugins such as `mise-php`:
+You can override workloads/components through mise config:
 
 ```toml
-[tools]
-vsbuild = "2022"
-
-[env._.vsbuild]
-workloads = "Microsoft.VisualStudio.Workload.VCTools"
-components = "Microsoft.VisualStudio.Component.VC.CMake.Project"
-include_recommended = true
-include_optional = false
+[env]
+_.vsbuild = {
+  workloads = "Microsoft.VisualStudio.Workload.VCTools",
+  components = "Microsoft.VisualStudio.Component.VC.CMake.Project",
+  include_recommended = true,
+  include_optional = false
+}
 ```
 
-To disable recommended components:
+Or via CLI:
 
-```powershell
-$env:VSBUILD_NO_RECOMMENDED = '1'
+```sh
+mise config set env._.vsbuild.components "Microsoft.VisualStudio.Component.VC.CMake.Project"
 mise install vsbuild@2022
 ```
 
 ### Install method
 
-The default install method is WinGet:
+The default install method is `winget`:
 
-```powershell
-$env:VSBUILD_INSTALL_METHOD = 'winget'
+```toml
+[env]
+_.vsbuild = { install_method = "winget" }
 ```
 
-Known release lines can also use direct bootstrapper URLs:
+Known versions can also use the direct Visual Studio bootstrapper:
 
-```powershell
-$env:VSBUILD_INSTALL_METHOD = 'direct'
-mise install vsbuild@2022
+```toml
+[env]
+_.vsbuild = { install_method = "direct" }
 ```
 
-Future inferred release lines use WinGet by default. If Microsoft publishes a bootstrapper URL before the plugin knows about it, provide an override:
+For future/custom channels, provide your own bootstrapper URL:
 
-```powershell
-$env:VSBUILD_INSTALL_METHOD = 'direct'
-$env:VSBUILD_BOOTSTRAPPER_URL = 'https://aka.ms/vs/XX/release/vs_BuildTools.exe'
-mise install vsbuild@2028
+```toml
+[env]
+_.vsbuild = {
+  install_method = "direct",
+  bootstrapper_url = "https://example.com/vs_BuildTools.exe"
+}
 ```
 
 ### Future versions
 
-`vsbuild@latest` and `vsbuild@current` are the preferred future-proof names because they use Microsoft’s generic current-channel package:
-
-```sh
-mise install vsbuild@latest
-```
-
-Explicit future years are also supported as an inferred fallback:
+Explicit future years are inferred as WinGet package IDs:
 
 ```sh
 mise install vsbuild@2028
 ```
 
-That resolves to:
+This attempts to install:
 
 ```text
 Microsoft.VisualStudio.2028.BuildTools
 ```
 
-If Microsoft has not published that package ID, WinGet will fail clearly. Once Microsoft publishes it, the plugin should not need a code change.
-
-To inspect what WinGet currently exposes:
-
-```sh
-vsbuild-list
-```
-
-Or directly:
-
-```powershell
-winget search --source winget --id Microsoft.VisualStudio --accept-source-agreements
-```
+If Microsoft has not published that package ID, WinGet will fail clearly. `vsbuild@latest` and `vsbuild@current` use the generic current-channel package and are the preferred future-proof options.
 
 ### Uninstall
 
-Use the helper first:
+Use the generated helper first:
 
 ```sh
 vsbuild-uninstall
 ```
 
-Then remove the mise install entry if needed:
+Then remove the mise tool directory:
 
 ```sh
 mise uninstall vsbuild@2022
 ```
 
-For the current channel:
-
-```sh
-vsbuild-uninstall
-mise uninstall vsbuild@current
-```
-
-
-### Script layout and logging
-
-The PowerShell scripts are intentionally organized like the rest of the plugin instead of keeping all behavior in one large file. Shared behavior belongs under `bin/lib/`:
-
-```text
-bin/lib/log.ps1       # shared log formatting and command echoing
-bin/lib/common.ps1    # command, path, vswhere, and Visual Studio instance helpers
-bin/lib/helpers.ps1   # generated helper command wrappers
-```
-
-User-facing output should go through `Write-VsBuildLog`. This keeps the installer, update, uninstall, and list scripts visually consistent, and keeps emoji usage centralized instead of scattering symbols through every script.
-
 ## Debugging
 
 Enable verbose plugin output:
 
-```powershell
-$env:VSBUILD_VERBOSE = '1'
-mise install vsbuild@2022
-```
-
-Check available package discovery:
-
 ```sh
-mise ls-remote vsbuild
-vsbuild-list
+VSBUILD_VERBOSE=1 mise install vsbuild@2022
 ```
 
-Check the active toolchain:
-
-```sh
-vsbuild-info
-vsbuild-run where cl
-vsbuild-run cl /?
-vsbuild-run cmake --version
-```
-
-Check the install path:
-
-```powershell
-$env:VSBUILD_HOME
-$env:VSBUILD_INSTALL_PATH
-```
-
-Disable discovery for deterministic behavior:
+Disable WinGet discovery:
 
 ```powershell
 $env:VSBUILD_DISABLE_DISCOVERY = '1'
 mise ls-remote vsbuild
 ```
 
+Preview the generated install command:
+
+```powershell
+mise config set env._.vsbuild.dry_run true
+mise install vsbuild@2022
+```
 
 ## Testing
 
-The project includes GitHub Actions and local smoke checks inspired by `mise-php`. PowerShell implementation details are split under `bin/` and reusable helpers live in `bin/lib/`, so installer, updater, uninstaller, and listing scripts share the same command execution and log formatting behavior.
-
-Default CI intentionally avoids installing the full Visual Studio Build Tools payload. The normal checks validate repository metadata, Lua syntax, mise plugin registration, version listing, plugin option export, and PowerShell installer argument generation through dry-run mode.
-
-Run the main local checks with:
+The repository includes static checks and mise smoke tests.
 
 ```sh
-rustc .github/scripts/ci-checks.rs -o ci-checks
-./ci-checks static
-mise plugin link vsbuild .
-VSBUILD_DISABLE_DISCOVERY=1 mise ls-remote vsbuild
+mise run static
+mise run lua-syntax
+mise run ls-remote
 ```
 
-PowerShell installer dry-run:
-
-```powershell
-./bin/install-vsbuild.ps1 `
-  -Version '2022' `
-  -InstallPath "$PWD/.tmp/vsbuild/2022" `
-  -WingetId 'Microsoft.VisualStudio.2022.BuildTools' `
-  -Workloads 'Microsoft.VisualStudio.Workload.VCTools' `
-  -Components 'Microsoft.VisualStudio.Component.VC.CMake.Project' `
-  -InstallMethod 'winget' `
-  -IncludeRecommended `
-  -DryRun
-```
-
-The full Windows install smoke test is available from the `Test VS Build Tools Plugin` workflow through manual `workflow_dispatch`. It is disabled by default because Visual Studio Build Tools installation is large and may be slow.
+The CI workflow validates repository metadata, Lua file structure, README sections, release workflow files, version listing, and plugin option exports.
 
 ## Release management
 
-Releases are tag-driven.
+The repository includes GitHub Actions workflows for tests, release publishing, and updating the `latest` reference.
 
-Create a release tag:
-
-```sh
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-The publish workflow builds a plugin ZIP named:
+The first project release starts at `0.1.0`. Future changes should follow Keep a Changelog grouping:
 
 ```text
-mise-vsbuild-0.1.0.zip
-```
-
-It also generates `manifest.json` from `metadata.lua`, uploads the ZIP to the matching GitHub release, and publishes the manifest to the `manifest` release tag.
-
-After a GitHub release is published, the `Update latest tag` workflow moves the lightweight `latest` tag to the newest release commit. This keeps installation commands such as the following stable:
-
-```sh
-mise plugin install vsbuild https://github.com/verzly/mise-vsbuild#latest
+Added
+Changed
+Removed
+Fixed
+Security
 ```
 
 ## Known Issues
 
-Visual Studio Build Tools are system components. The plugin can place the main instance under the mise install path, but it cannot make Visual Studio Build Tools fully portable.
+Visual Studio Build Tools are not fully portable. Some shared Microsoft components, registry entries, installer metadata, SDK files, or caches may be written outside the mise install directory.
 
-Admin permissions may be required during installation, update, or uninstall.
+Visual Studio Installer may require elevation even when launched through mise. Run the terminal as Administrator if installation fails due to permissions.
 
-If a future explicit year such as `vsbuild@2028` fails, check whether Microsoft has published a matching WinGet package ID. Use `vsbuild@latest` / `vsbuild@current` when you want the Microsoft current channel instead of a year-specific line.
-
-Some installers may return `3010`, which means installation completed but a restart is required. The plugin treats this as a successful install.
+Command-line quoting around `winget --override` is intentionally conservative. Prefer install paths without spaces for the mise data directory, such as `D:\program\mise`.
 
 ## Contributing
 
-Pull requests are welcome. Keep the plugin Windows-only unless Visual Studio Build Tools become available on other platforms.
-
-Useful local development commands:
-
-```sh
-mise plugin link vsbuild .
-mise ls-remote vsbuild
-mise install vsbuild@current --verbose
-mise install vsbuild@2022 --verbose
-```
+Keep most plugin behavior in Lua under `hooks/` and `lib/`. Generated `.cmd` helpers should remain small and should only bridge into the Visual Studio developer environment.
 
 ## License & Acknowledgments
 
-This project is licensed under the AGPL-3.0 License. See [`LICENSE`](./LICENSE) for details.
+This project is licensed under the GNU Affero General Public License v3.0.
 
-Acknowledgments:
-
-- [jdx/mise](https://github.com/jdx/mise) for the runtime and plugin system
-- Microsoft Visual Studio Build Tools for the Windows C++ toolchain
-- WinGet for package discovery and bootstrap installation
+Thanks to the [jdx/mise](https://github.com/jdx/mise) project and the `mise-php` plugin structure that inspired this repository layout.

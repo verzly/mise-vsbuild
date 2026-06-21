@@ -1,3 +1,5 @@
+local M = {}
+
 local function is_enabled(env_var)
     local v = os.getenv(env_var)
     if v == nil then return false end
@@ -23,13 +25,14 @@ local function quiet_redirect()
     return " > /dev/null 2>&1"
 end
 
-return {
-    VERBOSE = is_enabled("VSBUILD_VERBOSE") or is_enabled("MISE_VERBOSE"),
-    QUIET = quiet_redirect(),
-    WORKLOADS = value_or("VSBUILD_WORKLOADS", "Microsoft.VisualStudio.Workload.VCTools"),
-    COMPONENTS = value_or("VSBUILD_COMPONENTS", ""),
-    INSTALL_METHOD = value_or("VSBUILD_INSTALL_METHOD", "winget"),
-    BOOTSTRAPPER_URL = value_or("VSBUILD_BOOTSTRAPPER_URL", ""),
-    INCLUDE_RECOMMENDED = not is_enabled("VSBUILD_NO_RECOMMENDED"),
-    INCLUDE_OPTIONAL = is_enabled("VSBUILD_INCLUDE_OPTIONAL"),
-}
+M.VERBOSE = is_enabled("VSBUILD_VERBOSE") or is_enabled("MISE_VERBOSE")
+M.QUIET = quiet_redirect()
+M.WORKLOADS = value_or("VSBUILD_WORKLOADS", "Microsoft.VisualStudio.Workload.VCTools")
+M.COMPONENTS = value_or("VSBUILD_COMPONENTS", "")
+M.INSTALL_METHOD = value_or("VSBUILD_INSTALL_METHOD", "winget")
+M.BOOTSTRAPPER_URL = value_or("VSBUILD_BOOTSTRAPPER_URL", "")
+M.INCLUDE_RECOMMENDED = not is_enabled("VSBUILD_NO_RECOMMENDED")
+M.INCLUDE_OPTIONAL = is_enabled("VSBUILD_INCLUDE_OPTIONAL")
+M.DRY_RUN = is_enabled("VSBUILD_DRY_RUN")
+
+return M

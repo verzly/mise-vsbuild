@@ -1,21 +1,25 @@
-local env = require("lib/env")
-
 local M = {}
 
-function M.verbose_tip(version)
-    if env.VERBOSE then
-        return "💡 Verbose mode is enabled; Visual Studio Installer and WinGet commands will be shown.\n"
-    end
+local cyan = "\27[96m"
+local yellow = "\27[93m"
+local reset = "\27[0m"
 
-    return "💡 Tip: \27[93mRun 'VSBUILD_VERBOSE=1 mise install vsbuild@" .. (version or "VERSION") .. "'\27[0m to show commands and installer details.\n"
+function M.step(name, message)
+    print(string.format("  %-14s %s", name, message or ""))
 end
 
-function M.admin_tip()
-    return "💡 Tip: \27[93mRun the terminal as Administrator\27[0m if Visual Studio Installer or WinGet requests elevation.\n"
+function M.section(title)
+    print("")
+    print("  " .. title)
+    print("  ────────────────────────────────────────────────────")
 end
 
-function M.manual_tip(command)
-    return "💡 Tip: \27[93mRun '" .. command .. "'\27[0m manually after installation to confirm it works.\n"
+function M.note(message)
+    print(cyan .. "Note:" .. reset .. " " .. message)
+end
+
+function M.warning(message)
+    io.stderr:write(yellow .. "Warning:" .. reset .. " " .. message .. "\n")
 end
 
 function M.see(anchor)
@@ -24,6 +28,18 @@ end
 
 function M.windows_only()
     return "\n\nVisual Studio Build Tools can only be installed on Windows.\n\n"
+end
+
+function M.admin_tip()
+    return "💡 Tip: Run the terminal as Administrator if Visual Studio Installer or winget requests elevation.\n"
+end
+
+function M.verbose_tip(version)
+    return "💡 Tip: Set VSBUILD_VERBOSE=1 and retry: mise install vsbuild@" .. tostring(version) .. "\n"
+end
+
+function M.manual_tip(command)
+    return "💡 Tip: Run '" .. command .. "' manually to confirm it works.\n"
 end
 
 return M

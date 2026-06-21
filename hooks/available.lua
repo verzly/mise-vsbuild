@@ -14,7 +14,7 @@ function PLUGIN:Available(ctx)
             note = release.note,
             addition = {
                 { name = "vs", version = release.major or "auto" },
-                { name = "product", version = release.winget },
+                { name = "product", version = release.winget or "" },
                 { name = "source", version = release.discovered and "winget" or "built-in" },
             },
         })
