@@ -101,7 +101,7 @@ jobs:
             }
           }
 
-          Set-Content -Path new-vsbuildtools-versions.txt -Value $newVersions -Encoding utf8
+          Set-Content -Path new-vsbuild-versions.txt -Value $newVersions -Encoding utf8
           Write-Host "Cached $($lines.Count) Visual Studio Build Tools release lines."
 
       - name: Commit to cache branch if changed
@@ -115,7 +115,7 @@ jobs:
           if ($LASTEXITCODE -eq 0) {
             Write-Host 'No changes, skipping commit.'
           } else {
-            git commit -m 'chore: bump vsbuildtools versions cache'
+            git commit -m 'chore: bump vsbuild versions cache'
             git push origin cache
           }
 
@@ -124,12 +124,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: pwsh
         run: |
-          if (-not (Test-Path new-vsbuildtools-versions.txt)) {
+          if (-not (Test-Path new-vsbuild-versions.txt)) {
             Write-Host 'No new Visual Studio Build Tools versions detected.'
             exit 0
           }
 
-          $versions = Get-Content new-vsbuildtools-versions.txt | Where-Object { $_.Trim() -ne '' }
+          $versions = Get-Content new-vsbuild-versions.txt | Where-Object { $_.Trim() -ne '' }
           if ($versions.Count -eq 0) {
             Write-Host 'No new Visual Studio Build Tools versions detected.'
             exit 0
@@ -146,7 +146,7 @@ jobs:
             $body = @"
             The Visual Studio Build Tools versions cache detected a new release line: $version.
 
-            Please review whether the fixed install profile in ``lib/windows_vsbuildtools.lua`` still matches the supported MSVC Build Tools setup.
+            Please review whether the fixed install profile in ``lib/windows_vsbuild.lua`` still matches the supported MSVC Build Tools setup.
 
             Focus areas:
             - WinGet package ID

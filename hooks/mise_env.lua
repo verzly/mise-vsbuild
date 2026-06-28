@@ -19,7 +19,7 @@ function PLUGIN:MiseEnv(ctx)
     local env_vars = {}
 
     if options.enabled(options.get(ctx, "verbose")) then
-        set_env(env_vars, "VSBUILDTOOLS_VERBOSE", 1)
+        set_env(env_vars, "VSBUILD_VERBOSE", 1)
     end
 
     return env_vars

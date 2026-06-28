@@ -47,12 +47,12 @@ jobs:
 
       - name: Register plugin from PR source
         shell: pwsh
-        run: mise plugin link vsbuildtools "${{ github.workspace }}"
+        run: mise plugin link vsbuild "${{ github.workspace }}"
 
       - name: Check built-in version listing
         shell: pwsh
         run: |
-          mise ls-remote vsbuildtools | Tee-Object -FilePath versions.txt
+          mise ls-remote vsbuild | Tee-Object -FilePath versions.txt
 
           foreach ($version in @('current', '2026', '2022', '2019', '2017', 'latest', 'stable')) {
             if (-not (Select-String -Path versions.txt -Pattern "^$version\s*$" -Quiet)) {

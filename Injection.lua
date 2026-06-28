@@ -1,6 +1,6 @@
 --[[
 Do not change any thing in the current file,
-it's just there to show what objects are injected by verzly/mise-vsbuildtools and what they do.
+it's just there to show what objects are injected by verzly/mise-vsbuild and what they do.
 
 It's just handy when developing plugins, IDE can use this object for code hints!
  --]]
@@ -9,7 +9,7 @@ RUNTIME = {
     osType = "",
     --- Operating system architecture at runtime (amd64, arm64, etc.)
     archType = "",
-    --- verzly/mise-vsbuildtools runtime version
+    --- verzly/mise-vsbuild runtime version
     version = "",
     --- Plugin directory
     pluginDirPath = "",

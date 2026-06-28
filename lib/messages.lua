@@ -23,7 +23,7 @@ function M.warning(message)
 end
 
 function M.see(anchor)
-    return "See: https://github.com/verzly/mise-vsbuildtools#" .. anchor .. "\n"
+    return "See: https://github.com/verzly/mise-vsbuild#" .. anchor .. "\n"
 end
 
 function M.windows_only()
@@ -35,7 +35,7 @@ function M.admin_tip()
 end
 
 function M.verbose_tip(version)
-    return "Tip: Set VSBUILDTOOLS_VERBOSE=1 and retry: mise install vsbuildtools@" .. tostring(version) .. "\n"
+    return "Tip: Set VSBUILD_VERBOSE=1 and retry: mise install vsbuild@" .. tostring(version) .. "\n"
 end
 
 function M.manual_tip(command)

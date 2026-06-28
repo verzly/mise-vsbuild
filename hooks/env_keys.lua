@@ -2,11 +2,11 @@
 --- @param ctx table Context provided by vfox
 --- @return table Environment configuration
 function PLUGIN:EnvKeys(ctx)
-    local sdkInfo = ctx.sdkInfo["vsbuildtools"]
+    local sdkInfo = ctx.sdkInfo["vsbuild"]
     local installDir = sdkInfo.path
 
     return {
-        { key = "VSBUILDTOOLS_HOME", value = installDir },
+        { key = "VSBUILD_HOME", value = installDir },
         { key = "VSINSTALLDIR", value = installDir .. "\\" },
         { key = "PATH", value = installDir .. "\\bin" },
     }

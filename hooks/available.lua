@@ -1,4 +1,4 @@
-local versions = require("lib/vsbuildtools_versions")
+local versions = require("lib/vsbuild_versions")
 
 --- Returns available Visual Studio Build Tools release lines.
 --- Known releases are always included. Additional Microsoft.VisualStudio.*.BuildTools

@@ -17,7 +17,7 @@ local function is_enabled(env_var)
 end
 
 local function is_verbose()
-    if is_enabled("VSBUILDTOOLS_VERBOSE") then return true end
+    if is_enabled("VSBUILD_VERBOSE") then return true end
     if is_enabled("MISE_VERBOSE") then return true end
     return false
 end

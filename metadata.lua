@@ -1,12 +1,12 @@
 PLUGIN = {}
 
-PLUGIN.name = "vsbuildtools"
+PLUGIN.name = "vsbuild"
 PLUGIN.version = "0.1.0"
-PLUGIN.homepage = "https://github.com/verzly/mise-vsbuildtools"
+PLUGIN.homepage = "https://github.com/verzly/mise-vsbuild"
 PLUGIN.license = "AGPL-3.0"
 PLUGIN.description = "Visual Studio Build Tools manager plugin for mise on Windows (by verzly)"
 PLUGIN.minRuntimeVersion = "0.3.2"
-PLUGIN.manifestUrl = "https://github.com/verzly/mise-vsbuildtools/releases/download/manifest/manifest.json"
+PLUGIN.manifestUrl = "https://github.com/verzly/mise-vsbuild/releases/download/manifest/manifest.json"
 PLUGIN.notes = {
     "Windows only.",
     "Installs Visual Studio Build Tools through WinGet.",

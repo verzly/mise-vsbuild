@@ -1,6 +1,6 @@
-# verzly/mise-vsbuildtools
+# verzly/mise-vsbuild
 
-`verzly/mise-vsbuildtools` is a [jdx/mise](https://github.com/jdx/mise) plugin for installing and managing Microsoft Visual Studio Build Tools on Windows.
+`verzly/mise-vsbuild` is a [jdx/mise](https://github.com/jdx/mise) plugin for installing and managing Microsoft Visual Studio Build Tools on Windows.
 
 It provides a small, opinionated MSVC toolchain plugin for projects that need Visual Studio Build Tools without manually configuring the Visual Studio Installer. The plugin installs through WinGet, targets the mise install directory when Visual Studio supports `--installPath`, and exposes safe helper commands for running tools inside the Visual Studio developer environment.
 
@@ -52,9 +52,9 @@ lib/env.lua
 lib/messages.lua
 lib/options.lua
 lib/tools.lua
-lib/vsbuildtools_versions.lua
-lib/vsbuildtools_helpers.lua
-lib/windows_vsbuildtools.lua
+lib/vsbuild_versions.lua
+lib/vsbuild_helpers.lua
+lib/windows_vsbuild.lua
 ```
 
 PowerShell script files are not required for the main install flow. Lua builds the WinGet command, passes Visual Studio Installer arguments safely, verifies the resulting instance, and writes helper commands into the installed tool directory.
@@ -87,10 +87,10 @@ Example:
 [Environment]::SetEnvironmentVariable('MISE_DATA_DIR', 'D:\program\mise', 'User')
 ```
 
-After opening a new terminal, installing `vsbuildtools@2026` will target a path similar to:
+After opening a new terminal, installing `vsbuild@2026` will target a path similar to:
 
 ```text
-D:\program\mise\installs\vsbuildtools\2026
+D:\program\mise\installs\vsbuild\2026
 ```
 
 ### System files
@@ -106,20 +106,20 @@ The plugin intentionally does not add MSVC compiler internals directly to the gl
 Instead, each installed version gets a `bin` directory with small helper commands:
 
 ```text
-vsbuildtools-info
-vsbuildtools-list
-vsbuildtools-run
-vsbuildtools-shell
-vsbuildtools-cl
-vsbuildtools-cmake
-vsbuildtools-msbuild
+vsbuild-info
+vsbuild-list
+vsbuild-run
+vsbuild-shell
+vsbuild-cl
+vsbuild-cmake
+vsbuild-msbuild
 vsdevcmd
 vcvarsall
 vcvars64
 vcvars32
 vcvarsarm64
-vsbuildtools-update
-vsbuildtools-uninstall
+vsbuild-update
+vsbuild-uninstall
 ```
 
 ## Get started
@@ -143,25 +143,25 @@ To install Visual Studio Build Tools using the plugin, first install the plugin:
 ```sh
 # NOTE: If you are not contributing and want stable releases, use the `#latest` suffix
 # to avoid tracking the development branch.
-mise plugin install vsbuildtools https://github.com/verzly/mise-vsbuildtools#latest
+mise plugin install vsbuild https://github.com/verzly/mise-vsbuild#latest
 ```
 
 For local development before publishing:
 
 ```sh
-mise plugin link vsbuildtools /path/to/verzly/mise-vsbuildtools
+mise plugin link vsbuild /path/to/verzly/mise-vsbuild
 ```
 
 Then install/select a Build Tools version:
 
 ```sh
 # Install/select the Microsoft current channel
-mise use -g vsbuildtools@latest
+mise use -g vsbuild@latest
 
 # Or install/select explicitly
-mise use -g vsbuildtools@current
-mise use -g vsbuildtools@2026
-mise use -g vsbuildtools@2022
+mise use -g vsbuild@current
+mise use -g vsbuild@2026
+mise use -g vsbuild@2022
 ```
 
 > [!TIP]
@@ -179,84 +179,84 @@ Plugin updates can be installed with:
 
 ```sh
 # Upgrade plugin, following the originally installed target
-mise plugin upgrade vsbuildtools
+mise plugin upgrade vsbuild
 
 # Upgrade plugin to the latest release tag
-mise plugin upgrade vsbuildtools#latest
+mise plugin upgrade vsbuild#latest
 
 # Upgrade plugin to a specific release tag
-mise plugin upgrade vsbuildtools#v0.1.0
+mise plugin upgrade vsbuild#v0.1.0
 ```
 
 To update the installed Visual Studio Build Tools instance itself:
 
 ```sh
-vsbuildtools-update
+vsbuild-update
 ```
 
 ## Usage
 
-After installing the plugin, mise enables installation of packages named `vsbuildtools` through this plugin.
+After installing the plugin, mise enables installation of packages named `vsbuild` through this plugin.
 
 ### Visual Studio Build Tools
 
 ```sh
 # Check available Build Tools release lines and discovered WinGet packages
-mise ls-remote vsbuildtools
+mise ls-remote vsbuild
 
 # Check installed versions
-mise ls vsbuildtools
+mise ls vsbuild
 
 # Install latest/current Visual Studio Build Tools channel
-mise install vsbuildtools@latest
-mise install vsbuildtools@current
+mise install vsbuild@latest
+mise install vsbuild@current
 
 # Install specific known release lines
-mise install vsbuildtools@2026
-mise install vsbuildtools@2022
-mise install vsbuildtools@2019
-mise install vsbuildtools@2017
+mise install vsbuild@2026
+mise install vsbuild@2022
+mise install vsbuild@2019
+mise install vsbuild@2017
 
 # Select globally
-mise use -g vsbuildtools@2026
+mise use -g vsbuild@2026
 
 # Select locally for the current project
-mise use vsbuildtools@2022
+mise use vsbuild@2022
 ```
 
-`mise use vsbuildtools@2022` writes to the local `mise.toml`. `mise use -g vsbuildtools@2022` writes to the global mise config. A local project config can override the global default.
+`mise use vsbuild@2022` writes to the local `mise.toml`. `mise use -g vsbuild@2022` writes to the global mise config. A local project config can override the global default.
 
 ### Running commands inside the MSVC environment
 
 ```sh
-vsbuildtools-run where cl
-vsbuildtools-run cl
-vsbuildtools-run msbuild -version
-vsbuildtools-run cmake --version
-vsbuildtools-run python -m pip install some-native-package
+vsbuild-run where cl
+vsbuild-run cl
+vsbuild-run msbuild -version
+vsbuild-run cmake --version
+vsbuild-run python -m pip install some-native-package
 ```
 
 For an interactive shell:
 
 ```sh
-vsbuildtools-shell
+vsbuild-shell
 ```
 
 Direct helper shortcuts are also available:
 
 ```sh
-vsbuildtools-cl /?
-vsbuildtools-msbuild -version
-vsbuildtools-cmake --version
+vsbuild-cl /?
+vsbuild-msbuild -version
+vsbuild-cmake --version
 ```
 
 ### Architecture selection
 
-Generated helpers default to x64. Override the target architecture with `VSBUILDTOOLS_ARCH`:
+Generated helpers default to x64. Override the target architecture with `VSBUILD_ARCH`:
 
 ```powershell
-$env:VSBUILDTOOLS_ARCH = 'x86'
-vsbuildtools-run cl
+$env:VSBUILD_ARCH = 'x86'
+vsbuild-run cl
 ```
 
 Common values accepted by `vcvarsall.bat` include `x86`, `x64`, `arm64`, `x86_amd64`, and `amd64_arm64`, depending on the installed tools.
@@ -266,13 +266,13 @@ Common values accepted by `vcvarsall.bat` include `x86`, `x64`, `arm64`, `x86_am
 Use the generated helper first:
 
 ```sh
-vsbuildtools-uninstall
+vsbuild-uninstall
 ```
 
 Then remove the mise tool directory:
 
 ```sh
-mise uninstall vsbuildtools@2026
+mise uninstall vsbuild@2026
 ```
 
 ## Debugging
@@ -280,7 +280,7 @@ mise uninstall vsbuildtools@2026
 Enable verbose plugin output:
 
 ```sh
-VSBUILDTOOLS_VERBOSE=1 mise install vsbuildtools@2026
+VSBUILD_VERBOSE=1 mise install vsbuild@2026
 ```
 
 Common Visual Studio Installer exit codes include `740` for elevation required, `1618` for another installation running, and `3010` for success with reboot required. Visual Studio installation logs are usually written to `%TEMP%` with names starting with `dd_bootstrapper`, `dd_client`, or `dd_setup`.
@@ -293,13 +293,13 @@ Visual Studio Installer may require elevation even when launched through mise. R
 
 The plugin does not expose custom Visual Studio Installer profile configuration. That is intentional. The maintained install profile is the fixed MSVC Build Tools profile.
 
-The legacy `Microsoft.BuildTools2015` WinGet package is not treated as a `vsbuildtools@2015` version because it is not the same install model as modern Visual Studio Build Tools and does not provide the same mise-managed instance layout.
+The legacy `Microsoft.BuildTools2015` WinGet package is not treated as a `vsbuild@2015` version because it is not the same install model as modern Visual Studio Build Tools and does not provide the same mise-managed instance layout.
 
 ## Contributing
 
 Keep most plugin behavior in Lua under `hooks/` and `lib/`. Generated `.cmd` helpers should remain small and should only bridge into the Visual Studio developer environment.
 
-Before opening a pull request, test the affected install path on Windows with the Visual Studio Build Tools version you changed. For documentation-only changes, keep examples consistent with the `vsbuildtools` tool name.
+Before opening a pull request, test the affected install path on Windows with the Visual Studio Build Tools version you changed. For documentation-only changes, keep examples consistent with the `vsbuild` tool name.
 
 ## License & Acknowledgments
 

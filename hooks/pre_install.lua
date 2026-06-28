@@ -1,5 +1,5 @@
 local messages = require("lib/messages")
-local versions = require("lib/vsbuildtools_versions")
+local versions = require("lib/vsbuild_versions")
 
 --- Resolves the requested Visual Studio Build Tools version.
 --- @param ctx {version: string, runtimeVersion: string} Context
