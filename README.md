@@ -299,7 +299,7 @@ The legacy `Microsoft.BuildTools2015` WinGet package is not treated as a `vsbuil
 
 Keep most plugin behavior in Lua under `hooks/` and `lib/`. Generated `.cmd` helpers should remain small and should only bridge into the Visual Studio developer environment.
 
-Before opening a pull request, test the affected install path on Windows with the Visual Studio Build Tools version you changed. For documentation-only changes, keep examples consistent with the `vsbuild` tool name.
+Before opening a pull request, test the affected install path on Windows with the Visual Studio Build Tools version you changed. The gated GitHub test workflow also performs a Windows smoke test that lists available versions, installs a Build Tools release line through mise, verifies the mise-managed install path, checks helper command generation, and validates the detected Visual Studio instance version when that information is available. For documentation-only changes, keep examples consistent with the `vsbuild` tool name.
 
 ## License & Acknowledgments
 
