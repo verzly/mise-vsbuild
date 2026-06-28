@@ -41,14 +41,28 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 90
     env:
-      MISE_DATA_DIR: ${{ runner.temp }}\mise-data
-      MISE_CACHE_DIR: ${{ runner.temp }}\mise-cache
-      MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
-      TEST_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '2022' }}
       VSBUILD_VERBOSE: "1"
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Initialize test environment
+        shell: pwsh
+        run: |
+          $miseDataDir = Join-Path $env:RUNNER_TEMP 'mise-data'
+          $miseCacheDir = Join-Path $env:RUNNER_TEMP 'mise-cache'
+          $testVersion = '${{ github.event.inputs.version || '2022' }}'
+
+          if ([string]::IsNullOrWhiteSpace($testVersion)) {
+            $testVersion = '2022'
+          }
+
+          New-Item -ItemType Directory -Force -Path $miseDataDir, $miseCacheDir | Out-Null
+
+          "MISE_DATA_DIR=$miseDataDir" | Add-Content -Path $env:GITHUB_ENV -Encoding utf8
+          "MISE_CACHE_DIR=$miseCacheDir" | Add-Content -Path $env:GITHUB_ENV -Encoding utf8
+          "MISE_TRUSTED_CONFIG_PATHS=${{ github.workspace }}" | Add-Content -Path $env:GITHUB_ENV -Encoding utf8
+          "TEST_VERSION=$testVersion" | Add-Content -Path $env:GITHUB_ENV -Encoding utf8
 
       - name: Install mise
         uses: jdx/mise-action@v4
