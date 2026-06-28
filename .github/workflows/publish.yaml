@@ -1,86 +1,274 @@
-name: generate and publish manifest
+name: Publish release
+run-name: Publish release v${{ inputs.version }}
 
 on:
-  push:
-    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version without a leading v (for example 1.2.3, 1.2.3-alpha.1, 1.2.3-beta.1, or 1.2.3-rc.1)
+        required: true
+        type: string
+
+concurrency:
+  group: publish-${{ github.repository }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
 
+env:
+  DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+  INPUT_VERSION: ${{ inputs.version }}
+
 jobs:
-  generate-manifest-json:
+  publish:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Set repo name
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEFAULT_BRANCH }}
+          fetch-depth: 0
+
+      - name: Resolve release context
+        shell: bash
         run: |
-          echo "REPO_NAME=$(echo ${{ github.repository }} | cut -d'/' -f2)" >> $GITHUB_ENV
-          echo "VERSION=$(echo ${{ github.ref }} | cut -d'/' -f3 | cut -c2-)" >> $GITHUB_ENV
-      - uses: actions/checkout@v4
+          set -euo pipefail
+
+          VERSION="$INPUT_VERSION"
+
+          if [[ "$VERSION" == v* ]]; then
+            echo "Version input must not include a leading v. Use 1.2.3, not v1.2.3."
+            exit 1
+          fi
+
+          SEMVER_REGEX='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?(\+([0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*))?$'
+
+          if ! [[ "$VERSION" =~ $SEMVER_REGEX ]]; then
+            echo "Version must be SemVer without a leading v, for example 1.2.3, 1.2.3-alpha.1, 1.2.3-beta.1, or 1.2.3-rc.1."
+            exit 1
+          fi
+
+          TAG="v${VERSION}"
+          RELEASE_BRANCH="chore/release-${TAG}"
+          REPO_NAME="${GITHUB_REPOSITORY#*/}"
+          ZIP_NAME="${REPO_NAME}-${VERSION}.zip"
+
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Release tag already exists: ${TAG}"
+            exit 1
+          fi
+
+          if git ls-remote --exit-code --heads origin "${RELEASE_BRANCH}" >/dev/null 2>&1; then
+            echo "REMOTE_BRANCH_PREEXISTED=true" >> "$GITHUB_ENV"
+            echo "Release branch already exists: ${RELEASE_BRANCH}"
+            exit 1
+          fi
+
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "TAG=${TAG}" >> "$GITHUB_ENV"
+          echo "RELEASE_BRANCH=${RELEASE_BRANCH}" >> "$GITHUB_ENV"
+          echo "REPO_NAME=${REPO_NAME}" >> "$GITHUB_ENV"
+          echo "ZIP_NAME=${ZIP_NAME}" >> "$GITHUB_ENV"
+          echo "REMOTE_BRANCH_PREEXISTED=false" >> "$GITHUB_ENV"
+          echo "RELEASE_CONTEXT_READY=true" >> "$GITHUB_ENV"
+
+      - name: Configure git author
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Set up Lua
         uses: leafo/gh-actions-lua@v8
         with:
           luaVersion: '5.3.5'
 
-      - name: Install dependencies
+      - name: Install manifest dependencies
+        shell: bash
         run: |
-          sudo apt-get install luarocks
+          set -euo pipefail
+
+          sudo apt-get update
+          sudo apt-get install -y luarocks zip
           sudo luarocks install dkjson
 
-      - name: Generate manifest
+      - name: Prepare release branch
+        shell: bash
         run: |
-          sudo lua -e '
-          require("metadata");
-          local dkjson = require("dkjson");
-          PLUGIN.downloadUrl = "https://github.com/${{ github.repository }}/releases/download/v${{ env.VERSION }}/${{ env.REPO_NAME }}-${{ env.VERSION }}.zip";
-          local str = dkjson.encode(PLUGIN);
-          print(str)' > manifest.json
+          set -euo pipefail
+
+          git fetch origin "$DEFAULT_BRANCH" --tags --force
+          git checkout -B "$RELEASE_BRANCH" "origin/$DEFAULT_BRANCH"
+
+      - name: Update release metadata and manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          export PLUGIN_DOWNLOAD_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ZIP_NAME}"
+
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import re
+
+          path = pathlib.Path("metadata.lua")
+          version = os.environ["VERSION"]
+          text = path.read_text(encoding="utf-8")
+          updated, count = re.subn(
+              r'PLUGIN\.version\s*=\s*"[^"]+"',
+              f'PLUGIN.version = "{version}"',
+              text,
+              count=1,
+          )
+
+          if count != 1:
+              raise SystemExit("Could not update PLUGIN.version in metadata.lua")
+
+          path.write_text(updated, encoding="utf-8")
+          PY
+
+          lua <<'LUA' > manifest.json
+          require("metadata")
+          local dkjson = require("dkjson")
+
+          PLUGIN.downloadUrl = os.getenv("PLUGIN_DOWNLOAD_URL")
+
+          local json = dkjson.encode(PLUGIN, { indent = true })
+          if not json then
+            error("Failed to encode plugin manifest")
+          end
+
+          print(json)
+          LUA
+
           cat manifest.json
 
-      - name: Upload JSON file
-        uses: actions/upload-artifact@v4
-        with:
-          name: manifest
-          path: manifest.json
-
-  release-plugin-and-manifest:
-    needs: generate-manifest-json
-    runs-on: ubuntu-latest
-    steps:
-      - name: Set repo name
+      - name: Commit release branch changes
+        id: release_changes
+        shell: bash
         run: |
-          echo "REPO_NAME=$(echo ${{ github.repository }} | cut -d'/' -f2)" >> $GITHUB_ENV
-          echo "VERSION=$(echo ${{ github.ref }} | cut -d'/' -f3 | cut -c2-)" >> $GITHUB_ENV
-          
-      - name: Checkout code
-        uses: actions/checkout@v4
+          set -euo pipefail
 
-      - name: Download JSON file
-        uses: actions/download-artifact@v4
-        with:
-          name: manifest
+          if git diff --quiet -- metadata.lua manifest.json; then
+            echo "No release metadata changes detected; skipping squash merge."
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
-      - name: Compress build files
-        uses: thedoctor0/zip-release@0.7.6
-        with:
-          type: "zip"
-          directory: "./"
-          filename: "${{ env.REPO_NAME }}-${{ env.VERSION }}.zip"
-          exclusions: "*.git* manifest.json"
+          git add metadata.lua manifest.json
+          git commit -m "chore: release ${TAG}"
+          git push -u origin "$RELEASE_BRANCH"
 
-      - name: Publish release
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: ./${{ env.REPO_NAME }}-${{ env.VERSION }}.zip
-          tag: v${{ env.VERSION }}
-          file_glob: true
+          echo "has_changes=true" >> "$GITHUB_OUTPUT"
 
-      - name: Publish manifest
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: ./manifest.json
-          tag: "manifest"
-          overwrite: true
-          file_glob: true
+      - name: Squash merge release branch
+        if: steps.release_changes.outputs.has_changes == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git checkout "$DEFAULT_BRANCH"
+          git pull --ff-only origin "$DEFAULT_BRANCH"
+          git merge --squash "$RELEASE_BRANCH"
+          git commit -m "chore: release ${TAG}"
+          git push origin "HEAD:$DEFAULT_BRANCH"
+
+      - name: Checkout release target
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git checkout "$DEFAULT_BRANCH"
+          git pull --ff-only origin "$DEFAULT_BRANCH"
+          echo "RELEASE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Create release archive
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          paths=(
+            Injection.lua
+            LICENSE
+            README.md
+            metadata.lua
+            hooks
+            lib
+          )
+
+          if [ -d bin ]; then
+            paths+=(bin)
+          fi
+
+          zip -r "$ZIP_NAME" "${paths[@]}"
+          unzip -l "$ZIP_NAME"
+
+      - name: Create git tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git tag -a "$TAG" "$RELEASE_SHA" -m "Release ${TAG}"
+          git push origin "refs/tags/${TAG}"
+
+      - name: Publish GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          gh release create "$TAG" "$ZIP_NAME" \
+            --title "$TAG" \
+            --target "$RELEASE_SHA" \
+            --generate-notes
+
+      - name: Publish manifest release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          git tag -f manifest "$RELEASE_SHA"
+          git push origin refs/tags/manifest --force
+
+          if gh release view manifest >/dev/null 2>&1; then
+            gh release upload manifest manifest.json --clobber
+          else
+            gh release create manifest manifest.json \
+              --title "manifest" \
+              --target "$RELEASE_SHA" \
+              --notes "Generated plugin manifest."
+          fi
+
+      - name: Move latest tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git tag -f latest "$RELEASE_SHA"
+          git push origin refs/tags/latest --force
+
+      - name: Delete release branch
+        if: always()
+        shell: bash
+        run: |
+          set +e
+
+          if [ "${RELEASE_CONTEXT_READY:-false}" != "true" ]; then
+            echo "Release context was not created; nothing to clean up."
+            exit 0
+          fi
+
+          if [ "${REMOTE_BRANCH_PREEXISTED:-false}" = "true" ]; then
+            echo "Release branch existed before this workflow; not deleting it."
+            exit 0
+          fi
+
+          git push origin --delete "$RELEASE_BRANCH" >/dev/null 2>&1 || true
