@@ -1,0 +1,206 @@
+name: Test VS Build Tools
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Visual Studio Build Tools release line to install during the Windows smoke test
+        required: false
+        default: "2022"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check-label:
+    runs-on: ubuntu-latest
+    outputs:
+      should-run: ${{ steps.check.outputs.should-run }}
+    steps:
+      - id: check
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "should-run=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ contains(github.event.pull_request.labels.*.name, 'needs-ci') }}" = "true" ]; then
+            echo "should-run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should-run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  windows-install:
+    name: Windows install smoke test
+    needs: check-label
+    if: needs.check-label.outputs.should-run == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      VSBUILD_VERBOSE: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup mise
+        uses: jdx/mise-action@v4
+        with:
+          install: false
+          cache: false
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Initialize test environment
+        shell: pwsh
+        run: |
+          $miseDataDir = Join-Path $env:RUNNER_TEMP 'mise-data'
+          $miseCacheDir = Join-Path $env:RUNNER_TEMP 'mise-cache'
+          $testVersion = '${{ github.event.inputs.version || '2022' }}'
+
+          if ([string]::IsNullOrWhiteSpace($testVersion)) {
+            $testVersion = '2022'
+          }
+
+          New-Item -ItemType Directory -Force -Path $miseDataDir, $miseCacheDir | Out-Null
+
+          "MISE_DATA_DIR=$miseDataDir" | Add-Content -Path $env:GITHUB_ENV -Encoding utf8
+          "MISE_CACHE_DIR=$miseCacheDir" | Add-Content -Path $env:GITHUB_ENV -Encoding utf8
+          "MISE_TRUSTED_CONFIG_PATHS=${{ github.workspace }}" | Add-Content -Path $env:GITHUB_ENV -Encoding utf8
+          "TEST_VERSION=$testVersion" | Add-Content -Path $env:GITHUB_ENV -Encoding utf8
+          "MISE_YES=1" | Add-Content -Path $env:GITHUB_ENV -Encoding utf8
+          "MISE_COLOR=never" | Add-Content -Path $env:GITHUB_ENV -Encoding utf8
+
+      - name: Verify mise setup
+        shell: pwsh
+        run: mise --version
+
+      - name: Register plugin from PR source
+        shell: pwsh
+        run: mise plugin link vsbuild "${{ github.workspace }}"
+
+      - name: Check built-in version listing
+        shell: pwsh
+        run: |
+          mise ls-remote vsbuild | Tee-Object -FilePath versions.txt
+
+          foreach ($version in @('current', '2026', '2022', '2019', '2017', 'latest', 'stable')) {
+            if (-not (Select-String -Path versions.txt -Pattern "^$version\s*$" -Quiet)) {
+              throw "Expected version '$version' in version list"
+            }
+          }
+
+      - name: Install Visual Studio Build Tools
+        shell: pwsh
+        run: |
+          mise install "vsbuild@$env:TEST_VERSION"
+
+      - name: Verify install path and helper files
+        shell: pwsh
+        run: |
+          $installPath = (mise where "vsbuild@$env:TEST_VERSION").Trim()
+          if ([string]::IsNullOrWhiteSpace($installPath)) {
+            throw "mise where returned an empty install path for vsbuild@$env:TEST_VERSION"
+          }
+
+          $expectedPath = Join-Path $env:MISE_DATA_DIR "installs\vsbuild\$env:TEST_VERSION"
+          $actual = (Resolve-Path -LiteralPath $installPath).Path.TrimEnd([char]'\')
+          $expected = (Resolve-Path -LiteralPath $expectedPath).Path.TrimEnd([char]'\')
+
+          if ($actual -ine $expected) {
+            throw "Unexpected install path. Expected '$expected', got '$actual'."
+          }
+
+          foreach ($relativePath in @(
+            'VC\Auxiliary\Build\vcvarsall.bat',
+            'Common7\Tools\VsDevCmd.bat',
+            'bin\vsbuild-info.cmd',
+            'bin\vsbuild-run.cmd',
+            'bin\vsbuild-cl.cmd',
+            'bin\vsbuild-msbuild.cmd',
+            'bin\vcvars64.cmd'
+          )) {
+            $path = Join-Path $actual $relativePath
+            if (-not (Test-Path -LiteralPath $path)) {
+              throw "Expected installed file was not found: $path"
+            }
+          }
+
+          "VSBUILD_INSTALL_PATH=$actual" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Verify plugin version metadata
+        shell: pwsh
+        run: |
+          $metadata = Get-Content -Raw -LiteralPath "${{ github.workspace }}\metadata.lua"
+          $match = [regex]::Match($metadata, 'PLUGIN\.version\s*=\s*"(?<version>[^"]+)"')
+          if (-not $match.Success) {
+            throw "PLUGIN.version was not found in metadata.lua"
+          }
+
+          $pluginVersion = $match.Groups['version'].Value
+          if (-not ($pluginVersion -match '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$')) {
+            throw "PLUGIN.version is not SemVer-compatible: $pluginVersion"
+          }
+
+          "Plugin version: $pluginVersion"
+
+      - name: Verify installed Build Tools version
+        shell: pwsh
+        run: |
+          $installPath = $env:VSBUILD_INSTALL_PATH
+          $infoCommand = Join-Path $installPath 'bin\vsbuild-info.cmd'
+          $infoOutput = & $infoCommand 2>&1
+          $infoExitCode = $LASTEXITCODE
+          $infoText = ($infoOutput | Out-String)
+          $infoText
+
+          if ($infoExitCode -ne 0) {
+            throw "vsbuild-info failed with exit code $infoExitCode"
+          }
+
+          if ($infoText -notmatch "VSBUILD_VERSION=$([regex]::Escape($env:TEST_VERSION))") {
+            throw "vsbuild-info did not report VSBUILD_VERSION=$env:TEST_VERSION"
+          }
+
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path -LiteralPath $vswhere)) {
+            throw "vswhere.exe was not found after Build Tools installation"
+          }
+
+          $instances = & $vswhere `
+            -products Microsoft.VisualStudio.Product.BuildTools `
+            -requires Microsoft.VisualStudio.Workload.VCTools `
+            -all `
+            -format json | ConvertFrom-Json
+
+          if ($null -eq $instances) {
+            throw "vswhere did not return any Build Tools instances with the VCTools workload"
+          }
+
+          if ($instances -isnot [array]) {
+            $instances = @($instances)
+          }
+
+          $installedInstance = $instances | Where-Object {
+            ((Resolve-Path -LiteralPath $_.installationPath).Path.TrimEnd([char]'\')) -ieq $installPath.TrimEnd([char]'\')
+          } | Select-Object -First 1
+
+          if ($null -eq $installedInstance) {
+            $paths = ($instances | ForEach-Object { $_.installationPath }) -join ', '
+            throw "vswhere did not report the mise-managed Build Tools instance at '$installPath'. Reported paths: $paths"
+          }
+
+          $expectedMajor = @{
+            '2026' = '18'
+            '2022' = '17'
+            '2019' = '16'
+            '2017' = '15'
+          }[$env:TEST_VERSION]
+
+          if ($expectedMajor -and ($installedInstance.installationVersion -notmatch "^$expectedMajor\.")) {
+            throw "Unexpected Visual Studio installation version. Expected major '$expectedMajor', got '$($installedInstance.installationVersion)'."
+          }
+
+          "Visual Studio installation version: $($installedInstance.installationVersion)"
