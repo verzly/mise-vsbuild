@@ -2,31 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project follows semantic versioning.
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.1.0] - 2026-06-28
 
 ### Added
 
-- Add initial Windows-only `vsbuildtools` plugin for mise.
-- Add Lua-first install flow for Visual Studio Build Tools through `winget` or direct bootstrapper URLs.
-- Add support for `current`, `latest`, `stable`, 2026, 2022, 2019, 2017, and 2015 compatibility release lines.
-- Add Visual Studio 2015 v140 toolset compatibility profile through current Visual Studio Build Tools.
-- Add automatic WinGet discovery for future `Microsoft.VisualStudio.*.BuildTools` package IDs.
-- Add future-year fallback for versions such as `vsbuildtools@2028`.
-- Add configurable workloads, components, install method, bootstrapper URL, recommended components, optional components, and `vcvars_ver`.
-- Add generated helper commands for running commands inside the MSVC developer environment.
-- Add generated helper commands for `vcvarsall`, `vcvars64`, `vcvars32`, `vcvarsarm64`, `cl`, `msbuild`, CMake, update, uninstall, and discovery.
-- Add README, AGPL license, changelog, and plugin metadata.
+- Added initial `vsbuildtools` plugin implementation for jdx/mise.
+- Added WinGet-based installation for Visual Studio Build Tools on Windows.
+- Added support for `current`, `latest`, `stable`, `2026`, `2022`, `2019`, and `2017` release lines.
+- Added future-year inference for `Microsoft.VisualStudio.<YYYY>.BuildTools` WinGet packages.
+- Added generated helper commands for running `cl`, `cmake`, `msbuild`, `vcvarsall`, and `VsDevCmd` inside the selected Build Tools environment.
+- Added update and uninstall helper commands for Visual Studio Installer-managed instances.
+- Added GitHub release manifest workflows aligned with the `mise-php` repository structure.
 
 ### Changed
 
-- Improve Windows command execution by routing generated install invocations through PowerShell argument arrays instead of fragile raw `cmd.exe` quoting.
-- Treat Visual Studio Installer reboot-required success codes as successful installation results.
-- Refresh the README structure to match the professional `mise-php` style while keeping Visual Studio-specific operational details.
+- Simplified the plugin configuration surface to a fixed, auditable MSVC Build Tools install profile.
+- Removed custom install method, workload, component, optional component, `vcvars_ver`, and dry-run configuration paths.
+- Kept only the `verbose` plugin option, exposed through `VSBUILDTOOLS_VERBOSE`.
 
-### Fixed
+### Removed
 
-- Fix install command generation for mise install paths that contain spaces.
-- Fix helper generation to use `vcvarsall.bat` consistently for architecture and toolset selection.
-- Fix update/uninstall helpers to support both `vs_installer.exe` and `setup.exe` Visual Studio Installer entry points.
+- Removed the legacy `vsbuildtools@2015` compatibility profile because `Microsoft.BuildTools2015` does not use the same modern Visual Studio Build Tools instance model.

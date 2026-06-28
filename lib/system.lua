@@ -2,6 +2,75 @@ local M = {}
 
 local sep = package.config:sub(1, 1)
 
+local function base64_encode(data)
+    local alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    local result = {}
+    local i = 1
+
+    while i <= #data do
+        local b1 = data:byte(i) or 0
+        local b2 = data:byte(i + 1)
+        local b3 = data:byte(i + 2)
+
+        local n = b1 * 65536 + (b2 or 0) * 256 + (b3 or 0)
+        local c1 = math.floor(n / 262144) % 64
+        local c2 = math.floor(n / 4096) % 64
+        local c3 = math.floor(n / 64) % 64
+        local c4 = n % 64
+
+        table.insert(result, alphabet:sub(c1 + 1, c1 + 1))
+        table.insert(result, alphabet:sub(c2 + 1, c2 + 1))
+        table.insert(result, b2 and alphabet:sub(c3 + 1, c3 + 1) or "=")
+        table.insert(result, b3 and alphabet:sub(c4 + 1, c4 + 1) or "=")
+
+        i = i + 3
+    end
+
+    return table.concat(result)
+end
+
+local function append_utf16le_codepoint(out, codepoint)
+    if codepoint < 0x10000 then
+        table.insert(out, string.char(codepoint % 256))
+        table.insert(out, string.char(math.floor(codepoint / 256) % 256))
+        return
+    end
+
+    codepoint = codepoint - 0x10000
+    local high = 0xD800 + math.floor(codepoint / 0x400)
+    local low = 0xDC00 + (codepoint % 0x400)
+
+    table.insert(out, string.char(high % 256))
+    table.insert(out, string.char(math.floor(high / 256) % 256))
+    table.insert(out, string.char(low % 256))
+    table.insert(out, string.char(math.floor(low / 256) % 256))
+end
+
+local function utf16le(value)
+    value = tostring(value or "")
+    local out = {}
+
+    if utf8 ~= nil and utf8.codes ~= nil then
+        for _, codepoint in utf8.codes(value) do
+            append_utf16le_codepoint(out, codepoint)
+        end
+        return table.concat(out)
+    end
+
+    for i = 1, #value do
+        local b = value:byte(i)
+        table.insert(out, string.char(b))
+        table.insert(out, string.char(0))
+    end
+
+    return table.concat(out)
+end
+
+local function powershell_encoded_command(script)
+    return base64_encode(utf16le(script))
+end
+
+
 local function normalize_success_codes(success_codes)
     local codes = { [0] = true }
 
@@ -152,8 +221,8 @@ function M.windows_program_command(program, args)
         "powershell",
         "-NoProfile",
         "-ExecutionPolicy", "Bypass",
-        "-Command",
-        M.windows_cmd_quote(script),
+        "-EncodedCommand",
+        powershell_encoded_command(script),
     }, " ")
 end
 
@@ -162,8 +231,8 @@ function M.powershell_command(script)
         "powershell",
         "-NoProfile",
         "-ExecutionPolicy", "Bypass",
-        "-Command",
-        M.windows_cmd_quote(script),
+        "-EncodedCommand",
+        powershell_encoded_command(script),
     }, " ")
 end
 

@@ -6,108 +6,91 @@ local function cmd(content)
     return content:gsub("\n", "\r\n")
 end
 
-local function vcvars_default(version)
-    if version == nil or version == "" then
-        return ""
-    end
-
-    return string.format('if not defined VSBUILDTOOLS_VCVARS_VER set "VSBUILDTOOLS_VCVARS_VER=%s"\n', version)
-end
-
-local function vcvars_ver_arg()
-    return [[set "VSBUILDTOOLS_VCVARS_VER_ARG="
-if defined VSBUILDTOOLS_VCVARS_VER set "VSBUILDTOOLS_VCVARS_VER_ARG=-vcvars_ver=%VSBUILDTOOLS_VCVARS_VER%"
-]]
-end
-
-function M.install(path, version, default_vcvars_ver)
+function M.install(path, version)
     local bin = system.join_path(path, "bin")
     system.mkdir(bin)
 
-    local defaults = vcvars_default(default_vcvars_ver)
     local version_text = tostring(version or "")
 
     system.write_file(system.join_path(bin, "vsdevcmd.cmd"), cmd([[@echo off
-]] .. defaults .. [[if not defined VSBUILDTOOLS_ARCH set "VSBUILDTOOLS_ARCH=x64"
-if not defined VSBUILDTOOLS_HOST_ARCH set "VSBUILDTOOLS_HOST_ARCH=x64"
-call "%~dp0..\Common7\Tools\VsDevCmd.bat" -arch=%VSBUILDTOOLS_ARCH% -host_arch=%VSBUILDTOOLS_HOST_ARCH% %*
+if not defined VSBUILDTOOLS_ARCH set "VSBUILDTOOLS_ARCH=x64"
+call "%~dp0..\Common7\Tools\VsDevCmd.bat" -arch=%VSBUILDTOOLS_ARCH% -host_arch=x64 %*
 ]]))
 
     system.write_file(system.join_path(bin, "vcvarsall.cmd"), cmd([[@echo off
-]] .. defaults .. vcvars_ver_arg() .. [[if "%~1"=="" (
+if "%~1"=="" (
   if not defined VSBUILDTOOLS_ARCH set "VSBUILDTOOLS_ARCH=x64"
-  call "%~dp0..\VC\Auxiliary\Build\vcvarsall.bat" %VSBUILDTOOLS_ARCH% %VSBUILDTOOLS_VCVARS_VER_ARG%
+  call "%~dp0..\VC\Auxiliary\Build\vcvarsall.bat" %VSBUILDTOOLS_ARCH%
 ) else (
-  call "%~dp0..\VC\Auxiliary\Build\vcvarsall.bat" %* %VSBUILDTOOLS_VCVARS_VER_ARG%
+  call "%~dp0..\VC\Auxiliary\Build\vcvarsall.bat" %*
 )
 ]]))
 
     system.write_file(system.join_path(bin, "vcvars64.cmd"), cmd([[@echo off
-]] .. defaults .. vcvars_ver_arg() .. [[call "%~dp0..\VC\Auxiliary\Build\vcvarsall.bat" x64 %VSBUILDTOOLS_VCVARS_VER_ARG% %*
+call "%~dp0..\VC\Auxiliary\Build\vcvarsall.bat" x64 %*
 ]]))
 
     system.write_file(system.join_path(bin, "vcvars32.cmd"), cmd([[@echo off
-]] .. defaults .. vcvars_ver_arg() .. [[call "%~dp0..\VC\Auxiliary\Build\vcvarsall.bat" x86 %VSBUILDTOOLS_VCVARS_VER_ARG% %*
+call "%~dp0..\VC\Auxiliary\Build\vcvarsall.bat" x86 %*
 ]]))
 
     system.write_file(system.join_path(bin, "vcvarsarm64.cmd"), cmd([[@echo off
-]] .. defaults .. vcvars_ver_arg() .. [[call "%~dp0..\VC\Auxiliary\Build\vcvarsall.bat" arm64 %VSBUILDTOOLS_VCVARS_VER_ARG% %*
+call "%~dp0..\VC\Auxiliary\Build\vcvarsall.bat" arm64 %*
 ]]))
 
     system.write_file(system.join_path(bin, "vsbuildtools-run.cmd"), cmd([[@echo off
-]] .. defaults .. vcvars_ver_arg() .. [[if "%~1"=="" (
+if "%~1"=="" (
   echo Usage: vsbuildtools-run ^<command^> [args...]
   exit /b 2
 )
 if not defined VSBUILDTOOLS_ARCH set "VSBUILDTOOLS_ARCH=x64"
-call "%~dp0..\VC\Auxiliary\Build\vcvarsall.bat" %VSBUILDTOOLS_ARCH% %VSBUILDTOOLS_VCVARS_VER_ARG% >nul
+call "%~dp0..\VC\Auxiliary\Build\vcvarsall.bat" %VSBUILDTOOLS_ARCH% >nul
 if errorlevel 1 exit /b %errorlevel%
 %*
 exit /b %errorlevel%
 ]]))
 
     system.write_file(system.join_path(bin, "vsbuildtools-shell.cmd"), cmd([[@echo off
-]] .. defaults .. vcvars_ver_arg() .. [[if not defined VSBUILDTOOLS_ARCH set "VSBUILDTOOLS_ARCH=x64"
-cmd /k ""%~dp0..\VC\Auxiliary\Build\vcvarsall.bat" %VSBUILDTOOLS_ARCH% %VSBUILDTOOLS_VCVARS_VER_ARG%"
+if not defined VSBUILDTOOLS_ARCH set "VSBUILDTOOLS_ARCH=x64"
+cmd /k ""%~dp0..\VC\Auxiliary\Build\vcvarsall.bat" %VSBUILDTOOLS_ARCH%"
 ]]))
 
     system.write_file(system.join_path(bin, "vsbuildtools-cl.cmd"), cmd([[@echo off
-]] .. defaults .. vcvars_ver_arg() .. [[if not defined VSBUILDTOOLS_ARCH set "VSBUILDTOOLS_ARCH=x64"
-call "%~dp0..\VC\Auxiliary\Build\vcvarsall.bat" %VSBUILDTOOLS_ARCH% %VSBUILDTOOLS_VCVARS_VER_ARG% >nul
+if not defined VSBUILDTOOLS_ARCH set "VSBUILDTOOLS_ARCH=x64"
+call "%~dp0..\VC\Auxiliary\Build\vcvarsall.bat" %VSBUILDTOOLS_ARCH% >nul
 if errorlevel 1 exit /b %errorlevel%
 cl.exe %*
 exit /b %errorlevel%
 ]]))
 
     system.write_file(system.join_path(bin, "vsbuildtools-cmake.cmd"), cmd([[@echo off
-]] .. defaults .. vcvars_ver_arg() .. [[if not defined VSBUILDTOOLS_ARCH set "VSBUILDTOOLS_ARCH=x64"
-call "%~dp0..\VC\Auxiliary\Build\vcvarsall.bat" %VSBUILDTOOLS_ARCH% %VSBUILDTOOLS_VCVARS_VER_ARG% >nul
+if not defined VSBUILDTOOLS_ARCH set "VSBUILDTOOLS_ARCH=x64"
+call "%~dp0..\VC\Auxiliary\Build\vcvarsall.bat" %VSBUILDTOOLS_ARCH% >nul
 if errorlevel 1 exit /b %errorlevel%
 cmake.exe %*
 exit /b %errorlevel%
 ]]))
 
     system.write_file(system.join_path(bin, "vsbuildtools-msbuild.cmd"), cmd([[@echo off
-]] .. defaults .. vcvars_ver_arg() .. [[if not defined VSBUILDTOOLS_ARCH set "VSBUILDTOOLS_ARCH=x64"
-call "%~dp0..\VC\Auxiliary\Build\vcvarsall.bat" %VSBUILDTOOLS_ARCH% %VSBUILDTOOLS_VCVARS_VER_ARG% >nul
+if not defined VSBUILDTOOLS_ARCH set "VSBUILDTOOLS_ARCH=x64"
+call "%~dp0..\VC\Auxiliary\Build\vcvarsall.bat" %VSBUILDTOOLS_ARCH% >nul
 if errorlevel 1 exit /b %errorlevel%
 msbuild.exe %*
 exit /b %errorlevel%
 ]]))
 
     system.write_file(system.join_path(bin, "vsbuildtools-info.cmd"), cmd(string.format([[@echo off
-%s%sif not defined VSBUILDTOOLS_ARCH set "VSBUILDTOOLS_ARCH=x64"
+if not defined VSBUILDTOOLS_ARCH set "VSBUILDTOOLS_ARCH=x64"
 echo VSBUILDTOOLS_HOME=%%~dp0..
 echo VSBUILDTOOLS_VERSION=%s
 echo VSBUILDTOOLS_ARCH=%%VSBUILDTOOLS_ARCH%%
-if defined VSBUILDTOOLS_VCVARS_VER echo VSBUILDTOOLS_VCVARS_VER=%%VSBUILDTOOLS_VCVARS_VER%%
 if exist "%%~dp0..\VC\Auxiliary\Build\vcvarsall.bat" echo vcvarsall=present
 if exist "%%~dp0..\Common7\Tools\VsDevCmd.bat" echo VsDevCmd=present
-call "%%~dp0..\VC\Auxiliary\Build\vcvarsall.bat" %%VSBUILDTOOLS_ARCH%% %%VSBUILDTOOLS_VCVARS_VER_ARG%% >nul
+call "%%~dp0..\VC\Auxiliary\Build\vcvarsall.bat" %%VSBUILDTOOLS_ARCH%% >nul
 if errorlevel 1 exit /b %%errorlevel%%
 where cl
 cl
-]], defaults, vcvars_ver_arg(), version_text)))
+]], version_text)))
 
     system.write_file(system.join_path(bin, "vsbuildtools-update.cmd"), cmd([[@echo off
 setlocal
@@ -164,7 +147,6 @@ if errorlevel 1 (
   echo   winget not found
 ) else (
   winget search --source winget --id Microsoft.VisualStudio --accept-source-agreements | findstr /R /C:"Microsoft\.VisualStudio.*BuildTools"
-  winget search --source winget --id Microsoft.BuildTools2015 --accept-source-agreements | findstr /C:"Microsoft.BuildTools2015"
 )
 echo.
 ]]))

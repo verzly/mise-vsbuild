@@ -4,13 +4,10 @@
 function PLUGIN:EnvKeys(ctx)
     local sdkInfo = ctx.sdkInfo["vsbuildtools"]
     local installDir = sdkInfo.path
-    local binDir = installDir .. "\\bin"
 
     return {
         { key = "VSBUILDTOOLS_HOME", value = installDir },
-        { key = "VSBUILDTOOLS_INSTALL_PATH", value = installDir },
-        { key = "VSBUILDTOOLS_VERSION", value = sdkInfo.version },
         { key = "VSINSTALLDIR", value = installDir .. "\\" },
-        { key = "PATH", value = binDir },
+        { key = "PATH", value = installDir .. "\\bin" },
     }
 end

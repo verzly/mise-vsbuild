@@ -38,21 +38,8 @@ function M.enabled(value)
         return false
     end
 
-    value = tostring(value):lower()
-    return value ~= "" and value ~= "0" and value ~= "false" and value ~= "no" and value ~= "off"
-end
-
-function M.disabled(value)
-    if value == nil then
-        return false
-    end
-
-    if value == false then
-        return true
-    end
-
-    value = tostring(value):lower()
-    return value == "0" or value == "false" or value == "no" or value == "off"
+    value = tostring(value)
+    return value ~= "" and value ~= "0" and value ~= "false"
 end
 
 return M

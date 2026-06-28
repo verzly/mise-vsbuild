@@ -6,7 +6,6 @@ local known_releases = {
         note = "Visual Studio Build Tools current channel",
         major = "current",
         winget = "Microsoft.VisualStudio.BuildTools",
-        bootstrapper = "https://aka.ms/vs/stable/vs_buildtools.exe",
         channel = "current",
     },
     {
@@ -14,7 +13,6 @@ local known_releases = {
         note = "Visual Studio 2026 Build Tools",
         major = "18",
         winget = "Microsoft.VisualStudio.BuildTools",
-        bootstrapper = "https://aka.ms/vs/stable/vs_buildtools.exe",
         channel = "stable",
     },
     {
@@ -22,31 +20,18 @@ local known_releases = {
         note = "Visual Studio 2022 Build Tools",
         major = "17",
         winget = "Microsoft.VisualStudio.2022.BuildTools",
-        bootstrapper = "https://aka.ms/vs/17/release/vs_buildtools.exe",
     },
     {
         version = "2019",
         note = "Visual Studio 2019 Build Tools",
         major = "16",
         winget = "Microsoft.VisualStudio.2019.BuildTools",
-        bootstrapper = "https://aka.ms/vs/16/release/vs_buildtools.exe",
     },
     {
         version = "2017",
         note = "Visual Studio 2017 Build Tools",
         major = "15",
         winget = "Microsoft.VisualStudio.2017.BuildTools",
-        bootstrapper = "https://aka.ms/vs/15/release/vs_buildtools.exe",
-    },
-    {
-        version = "2015",
-        note = "Visual Studio 2015 v140 toolset via Visual Studio Build Tools current channel",
-        major = "14",
-        winget = "Microsoft.VisualStudio.BuildTools",
-        bootstrapper = "https://aka.ms/vs/stable/vs_buildtools.exe",
-        default_components = { "Microsoft.VisualStudio.Component.VC.140" },
-        vcvars_ver = "14.0",
-        compatibility = true,
     },
 }
 
@@ -65,17 +50,9 @@ local aliases = {
     ["19"] = "2019",
     ["15"] = "2017",
     ["15.0"] = "2017",
-    ["14"] = "2015",
-    ["14.0"] = "2015",
 }
 
 local discovered_cache = nil
-
-local function truthy(value)
-    if value == nil then return false end
-    value = tostring(value):lower()
-    return value ~= "" and value ~= "0" and value ~= "false" and value ~= "no" and value ~= "off"
-end
 
 local function is_windows()
     if RUNTIME ~= nil and RUNTIME.osType ~= nil then
@@ -102,15 +79,7 @@ end
 local function clone(release)
     local out = {}
     for k, v in pairs(release) do
-        if type(v) == "table" then
-            local nested = {}
-            for nk, nv in pairs(v) do
-                nested[nk] = nv
-            end
-            out[k] = nested
-        else
-            out[k] = v
-        end
+        out[k] = v
     end
     return out
 end
@@ -151,15 +120,6 @@ local function known_major_for_year(year)
     return "auto"
 end
 
-local function known_bootstrapper_for_year(year)
-    for _, release in ipairs(known_releases) do
-        if release.version == year then
-            return release.bootstrapper or ""
-        end
-    end
-    return ""
-end
-
 local function package_to_release(package_id, package_version)
     if package_id == nil then
         return nil
@@ -174,7 +134,6 @@ local function package_to_release(package_id, package_version)
             note = "Visual Studio Build Tools current channel" .. (package_version ~= "" and (" (" .. package_version .. ")") or ""),
             major = "current",
             winget = package_id,
-            bootstrapper = "https://aka.ms/vs/stable/vs_buildtools.exe",
             channel = "current",
             discovered = true,
         }
@@ -187,7 +146,6 @@ local function package_to_release(package_id, package_version)
             note = "Visual Studio " .. year .. " Build Tools" .. (package_version ~= "" and (" (" .. package_version .. ")") or ""),
             major = known_major_for_year(year),
             winget = package_id,
-            bootstrapper = known_bootstrapper_for_year(year),
             discovered = true,
         }
     end
@@ -227,10 +185,6 @@ local function sort_releases(releases)
     end)
 end
 
-function M.discovery_enabled()
-    return not truthy(os.getenv("VSBUILDTOOLS_DISABLE_DISCOVERY"))
-end
-
 function M.discover()
     if discovered_cache ~= nil then
         return discovered_cache
@@ -238,7 +192,7 @@ function M.discover()
 
     discovered_cache = {}
 
-    if not M.discovery_enabled() or not is_windows() or not command_exists("winget") then
+    if not is_windows() or not command_exists("winget") then
         return discovered_cache
     end
 
@@ -298,7 +252,6 @@ function M.resolve(version)
             note = "Visual Studio " .. version .. " Build Tools (inferred)",
             major = "auto",
             winget = "Microsoft.VisualStudio." .. version .. ".BuildTools",
-            bootstrapper = "",
             inferred = true,
         }
     end

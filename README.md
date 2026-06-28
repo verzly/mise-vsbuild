@@ -2,27 +2,25 @@
 
 `verzly/mise-vsbuildtools` is a [jdx/mise](https://github.com/jdx/mise) plugin for installing and managing Microsoft Visual Studio Build Tools on Windows.
 
-It provides a mise-managed wrapper around the Visual Studio Installer with support for:
+It provides a small, opinionated MSVC toolchain plugin for projects that need Visual Studio Build Tools without manually configuring the Visual Studio Installer. The plugin installs through WinGet, targets the mise install directory when Visual Studio supports `--installPath`, and exposes safe helper commands for running tools inside the Visual Studio developer environment.
 
-- **Visual Studio Build Tools current channel** through `Microsoft.VisualStudio.BuildTools`
-- **Visual Studio Build Tools 2026, 2022, 2019, and 2017**
-- **Visual Studio 2015 v140 toolset compatibility** through current Build Tools
-- **Automatic WinGet discovery** for future `Microsoft.VisualStudio.*.BuildTools` package IDs
-- **Future year fallback** such as `vsbuildtools@2028` when Microsoft publishes a matching WinGet package
-- **C++ workload installation** through `Microsoft.VisualStudio.Workload.VCTools`
-- **Custom workloads/components** through `mise.toml` or `mise config set`
-- **Generated helper commands** for `vcvarsall`, `vcvars64`, developer shells, `cl`, `msbuild`, CMake, update, uninstall, and discovery
+Supported release lines:
 
-The plugin is designed for projects that occasionally need MSVC without requiring the full Visual Studio IDE: Python native packages, Node/Rust/Tauri native dependencies, CMake projects, Android dependencies, `llama.cpp`, CI images, or other Windows-native build steps.
+- `current`, `latest`, `stable` - Microsoft current Build Tools channel
+- `2026` - Visual Studio 2026 Build Tools
+- `2022` - Visual Studio 2022 Build Tools
+- `2019` - Visual Studio 2019 Build Tools
+- `2017` - Visual Studio 2017 Build Tools
+- future `YYYY` versions when Microsoft publishes a matching `Microsoft.VisualStudio.<YYYY>.BuildTools` WinGet package
 
-- [How it works](#how-does-it-work)
-  - [Windows only](#windows-only)
-  - [Visual Studio versions](#visual-studio-versions)
-  - [Lua-first plugin design](#lua-first-plugin-design)
+The plugin intentionally keeps configuration minimal. There is no install-method switch, no custom workload/component option, no dry-run mode, no optional-component toggle, and no `vcvars_ver` option. The installer profile is fixed so the plugin remains predictable, audit-friendly, and supportable.
+
+- [How it works](#how-it-works)
+  - [WinGet only](#winget-only)
+  - [Install profile](#install-profile)
   - [Install path](#install-path)
   - [System components](#system-components)
   - [Helper commands](#helper-commands)
-  - [Uninstall behavior](#uninstall-behavior)
 - [Get started](#get-started)
   - [Install mise](#get-started)
   - [Activate mise](#get-started)
@@ -31,89 +29,20 @@ The plugin is designed for projects that occasionally need MSVC without requirin
 - [Usage](#usage)
   - [Visual Studio Build Tools](#visual-studio-build-tools)
   - [Running commands inside the MSVC environment](#running-commands-inside-the-msvc-environment)
-  - [Architecture and toolset selection](#architecture-and-toolset-selection)
-  - [Custom workloads and components](#custom-workloads-and-components)
-  - [Install method](#install-method)
-  - [Future versions](#future-versions)
+  - [Architecture selection](#architecture-selection)
   - [Uninstall](#uninstall)
 - [Debugging](#debugging)
 - [Known Issues](#known-issues)
 - [Contributing](#contributing)
 
-Read on to learn why `verzly/mise-vsbuildtools` was created and what makes it work the way it does. Or jump straight to [Get started](#get-started) for quick installation steps.
+## How it works
 
-## How does it work?
+The plugin is designed around one supported installation path: install Visual Studio Build Tools with WinGet, pass a fixed Visual Studio Installer profile through `--override`, verify the installed instance, and generate small `.cmd` helpers into the selected mise install directory.
 
-`verzly/mise-vsbuildtools` uses mise's Lua tool plugin hooks to expose Visual Studio Build Tools as a mise-managed tool named `vsbuildtools`.
-
-During installation, the plugin asks Microsoft Visual Studio Installer to install into the mise install path for the selected version, for example:
+The main implementation lives in:
 
 ```text
-%MISE_DATA_DIR%\installs\vsbuildtools\2026
-```
-
-The default workload is:
-
-```text
-Microsoft.VisualStudio.Workload.VCTools
-```
-
-By default, recommended components are included. This usually provides the MSVC x64/x86 toolchain, Windows SDK, C++ CMake tools, and related native build tooling expected by Python packages, CMake projects, and Windows-native build systems.
-
-### Windows only
-
-This plugin intentionally supports Windows only. Visual Studio Build Tools are Windows system components and cannot be installed on Linux or macOS.
-
-For Linux/macOS C++ toolchains, use system package managers or separate mise-managed tools such as `cmake`, `ninja`, `llvm`, `rust`, or language-specific toolchains.
-
-### Visual Studio versions
-
-Known release lines are built into the plugin:
-
-```text
-current, 2026, 2022, 2019, 2017, 2015
-```
-
-`current`, `latest`, and `stable` resolve to Microsoft's current Visual Studio Build Tools WinGet package:
-
-```text
-Microsoft.VisualStudio.BuildTools
-```
-
-Visual Studio 2026 currently uses the generic current-channel package ID. Visual Studio 2022, 2019, and 2017 use year-specific WinGet package IDs:
-
-```text
-Microsoft.VisualStudio.2022.BuildTools
-Microsoft.VisualStudio.2019.BuildTools
-Microsoft.VisualStudio.2017.BuildTools
-```
-
-`vsbuildtools@2015` is a compatibility profile. It installs current Visual Studio Build Tools plus the v140 component:
-
-```text
-Microsoft.VisualStudio.Component.VC.140
-```
-
-The generated helper commands default `VSBUILDTOOLS_VCVARS_VER=14.0` for that profile. This is the practical modern route for legacy projects that need the Visual Studio 2015 C++ toolset while still using the current Visual Studio Installer infrastructure.
-
-On Windows, when `winget` is available, `mise ls-remote vsbuildtools` also tries to discover Visual Studio Build Tools packages from WinGet by scanning for package IDs matching:
-
-```text
-Microsoft.VisualStudio.BuildTools
-Microsoft.VisualStudio.<YEAR>.BuildTools
-```
-
-Discovery can be disabled when you need deterministic offline behavior:
-
-```powershell
-$env:VSBUILDTOOLS_DISABLE_DISCOVERY = '1'
-```
-
-### Lua-first plugin design
-
-The plugin intentionally keeps the implementation in Lua, following the same style as `mise-php`:
-
-```text
+metadata.lua
 hooks/available.lua
 hooks/pre_install.lua
 hooks/post_install.lua
@@ -128,7 +57,25 @@ lib/install.lua
 lib/helpers.lua
 ```
 
-PowerShell script files are not required for the main install flow. Lua builds the Visual Studio Installer command, invokes `winget` or the direct bootstrapper, verifies the resulting instance, and writes small `.cmd` helper commands into the installed tool directory.
+PowerShell script files are not required for the main install flow. Lua builds the WinGet command, passes Visual Studio Installer arguments safely, verifies the resulting instance, and writes helper commands into the installed tool directory.
+
+### WinGet only
+
+The plugin always installs with WinGet. This keeps the install path predictable and avoids maintaining multiple installer backends.
+
+Internally, the plugin runs a command equivalent to:
+
+```powershell
+winget install -e --id Microsoft.VisualStudio.2022.BuildTools --override "--wait --quiet --norestart --installPath <mise-install-path> --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended" --accept-package-agreements --accept-source-agreements
+```
+
+The exact package ID depends on the requested version.
+
+### Install profile
+
+The plugin installs the Visual C++ Build Tools workload with recommended components. This is intentionally not user-configurable.
+
+Custom Visual Studio workloads and components are powerful, but they turn a version manager plugin into a general Visual Studio Installer wrapper. That makes the behavior harder to review, harder to document, and easier to misuse. This plugin focuses on the MSVC Build Tools toolchain profile needed by native builds, Node/Python/Rust packages with native dependencies, Tauri projects, CMake, MSBuild, and similar Windows build workflows.
 
 ### Install path
 
@@ -144,12 +91,6 @@ After opening a new terminal, installing `vsbuildtools@2026` will target a path 
 
 ```text
 D:\program\mise\installs\vsbuildtools\2026
-```
-
-For the current channel:
-
-```text
-D:\program\mise\installs\vsbuildtools\current
 ```
 
 ### System components
@@ -180,12 +121,6 @@ vcvarsarm64
 vsbuildtools-update
 vsbuildtools-uninstall
 ```
-
-### Uninstall behavior
-
-The plugin generates a `vsbuildtools-uninstall` helper command that calls Visual Studio Installer with the instance install path. Use that before deleting the mise install directory.
-
-`mise uninstall vsbuildtools@2026` may remove the mise directory, but Visual Studio Installer should be used first so the Microsoft-registered Build Tools instance is removed cleanly.
 
 ## Get started
 
@@ -282,9 +217,6 @@ mise install vsbuildtools@2022
 mise install vsbuildtools@2019
 mise install vsbuildtools@2017
 
-# Install the Visual Studio 2015 v140 toolset compatibility profile
-mise install vsbuildtools@2015
-
 # Select globally
 mise use -g vsbuildtools@2026
 
@@ -318,7 +250,7 @@ vsbuildtools-msbuild -version
 vsbuildtools-cmake --version
 ```
 
-### Architecture and toolset selection
+### Architecture selection
 
 Generated helpers default to x64. Override the target architecture with `VSBUILDTOOLS_ARCH`:
 
@@ -327,97 +259,7 @@ $env:VSBUILDTOOLS_ARCH = 'x86'
 vsbuildtools-run cl
 ```
 
-Common values accepted by `vcvarsall.bat` include `x86`, `x64`, `arm64`, `x86_amd64`, and `amd64_arm64`, depending on the installed components.
-
-To select a specific MSVC toolset version, set `vcvars_ver` in mise config:
-
-```toml
-[env]
-_.vsbuildtools = { vcvars_ver = "14.29" }
-```
-
-Or via CLI:
-
-```sh
-mise config set env._.vsbuildtools.vcvars_ver "14.29"
-```
-
-The `vsbuildtools@2015` compatibility profile sets `14.0` automatically.
-
-### Custom workloads and components
-
-The default workload is:
-
-```text
-Microsoft.VisualStudio.Workload.VCTools
-```
-
-You can override workloads/components through mise config:
-
-```toml
-[env]
-_.vsbuildtools = {
-  workloads = "Microsoft.VisualStudio.Workload.VCTools",
-  components = "Microsoft.VisualStudio.Component.VC.CMake.Project",
-  include_recommended = true,
-  include_optional = false
-}
-```
-
-Or via CLI:
-
-```sh
-mise config set env._.vsbuildtools.components "Microsoft.VisualStudio.Component.VC.CMake.Project"
-mise install vsbuildtools@2026
-```
-
-Multiple workloads/components can be separated with commas or semicolons:
-
-```sh
-mise config set env._.vsbuildtools.components "Microsoft.VisualStudio.Component.VC.CMake.Project;Microsoft.VisualStudio.Component.VC.140"
-```
-
-### Install method
-
-The default install method is `winget`:
-
-```toml
-[env]
-_.vsbuildtools = { install_method = "winget" }
-```
-
-Known versions can also use the direct Visual Studio bootstrapper:
-
-```toml
-[env]
-_.vsbuildtools = { install_method = "direct" }
-```
-
-For future/custom channels, provide your own bootstrapper URL:
-
-```toml
-[env]
-_.vsbuildtools = {
-  install_method = "direct",
-  bootstrapper_url = "https://example.com/vs_BuildTools.exe"
-}
-```
-
-### Future versions
-
-Explicit future years are inferred as WinGet package IDs:
-
-```sh
-mise install vsbuildtools@2028
-```
-
-This attempts to install:
-
-```text
-Microsoft.VisualStudio.2028.BuildTools
-```
-
-If Microsoft has not published that package ID, WinGet will fail clearly. `vsbuildtools@latest` and `vsbuildtools@current` use the generic current-channel package and are the preferred future-proof options.
+Common values accepted by `vcvarsall.bat` include `x86`, `x64`, `arm64`, `x86_amd64`, and `amd64_arm64`, depending on the installed tools.
 
 ### Uninstall
 
@@ -441,20 +283,6 @@ Enable verbose plugin output:
 VSBUILDTOOLS_VERBOSE=1 mise install vsbuildtools@2026
 ```
 
-Disable WinGet discovery:
-
-```powershell
-$env:VSBUILDTOOLS_DISABLE_DISCOVERY = '1'
-mise ls-remote vsbuildtools
-```
-
-Preview the generated install command:
-
-```powershell
-mise config set env._.vsbuildtools.dry_run true
-mise install vsbuildtools@2026
-```
-
 Common Visual Studio Installer exit codes include `740` for elevation required, `1618` for another installation running, and `3010` for success with reboot required. Visual Studio installation logs are usually written to `%TEMP%` with names starting with `dd_bootstrapper`, `dd_client`, or `dd_setup`.
 
 ## Known Issues
@@ -463,13 +291,15 @@ Visual Studio Build Tools are not fully portable. Some shared Microsoft componen
 
 Visual Studio Installer may require elevation even when launched through mise. Run the terminal as Administrator if installation fails due to permissions.
 
-The `vsbuildtools@2015` profile is not the legacy standalone Microsoft Build Tools 2015 installer. It installs the v140 C++ toolset as a component of current Visual Studio Build Tools so it can keep using the same Visual Studio Installer lifecycle as the rest of the plugin.
+The plugin does not expose custom workload/component configuration. That is intentional. The maintained install profile is the MSVC C++ Build Tools profile with recommended components.
+
+The legacy `Microsoft.BuildTools2015` WinGet package is not treated as a `vsbuildtools@2015` version because it is not the same install model as modern Visual Studio Build Tools and does not provide the same mise-managed instance layout.
 
 ## Contributing
 
 Keep most plugin behavior in Lua under `hooks/` and `lib/`. Generated `.cmd` helpers should remain small and should only bridge into the Visual Studio developer environment.
 
-Before opening a pull request, test the affected install path on Windows with the Visual Studio Build Tools version you changed. For documentation-only changes, keep examples consistent with the `vsbuildtools` tool name and the `env._.vsbuildtools` configuration table.
+Before opening a pull request, test the affected install path on Windows with the Visual Studio Build Tools version you changed. For documentation-only changes, keep examples consistent with the `vsbuildtools` tool name.
 
 ## License & Acknowledgments
 
