@@ -46,6 +46,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup mise
+        uses: jdx/mise-action@v4
+        with:
+          install: false
+          cache: false
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Initialize test environment
         shell: pwsh
         run: |
@@ -65,13 +72,6 @@ jobs:
           "TEST_VERSION=$testVersion" | Add-Content -Path $env:GITHUB_ENV -Encoding utf8
           "MISE_YES=1" | Add-Content -Path $env:GITHUB_ENV -Encoding utf8
           "MISE_COLOR=never" | Add-Content -Path $env:GITHUB_ENV -Encoding utf8
-
-      - name: Setup mise
-        uses: jdx/mise-action@v4
-        with:
-          install: false
-          cache: false
-          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify mise setup
         shell: pwsh
