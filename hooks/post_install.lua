@@ -1,6 +1,6 @@
-local install = require("lib/install")
+local install = require("lib/windows_vsbuildtools")
 local messages = require("lib/messages")
-local versions = require("lib/versions")
+local versions = require("lib/vsbuildtools_versions")
 
 --- Performs Visual Studio Build Tools installation after mise creates the install directory.
 --- @param ctx {rootPath: string, runtimeVersion: string, sdkInfo: table} Context

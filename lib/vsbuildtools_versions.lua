@@ -1,5 +1,7 @@
 local M = {}
 
+local CACHE_URL = "https://raw.githubusercontent.com/verzly/mise-vsbuildtools/cache/versions.txt"
+
 local known_releases = {
     {
         version = "current",
@@ -52,29 +54,7 @@ local aliases = {
     ["15.0"] = "2017",
 }
 
-local discovered_cache = nil
-
-local function is_windows()
-    if RUNTIME ~= nil and RUNTIME.osType ~= nil then
-        return RUNTIME.osType == "windows"
-    end
-    return package.config:sub(1, 1) == "\\"
-end
-
-local function command_exists(command)
-    if not is_windows() then
-        return false
-    end
-
-    local handle = io.popen("where.exe " .. command .. " 2>NUL")
-    if handle == nil then
-        return false
-    end
-
-    local output = handle:read("*a") or ""
-    handle:close()
-    return output ~= ""
-end
+local cached_releases = nil
 
 local function clone(release)
     local out = {}
@@ -94,13 +74,13 @@ local function by_version(releases, version)
 end
 
 local function add_unique(releases, release)
-    if release == nil or release.version == nil then
+    if release == nil or release.version == nil or release.version == "" then
         return
     end
 
     local existing = by_version(releases, release.version)
     if existing ~= nil then
-        if existing.discovered and not release.discovered then
+        if existing.cached ~= true and release.cached == true then
             for k, v in pairs(release) do
                 existing[k] = v
             end
@@ -135,7 +115,7 @@ local function package_to_release(package_id, package_version)
             major = "current",
             winget = package_id,
             channel = "current",
-            discovered = true,
+            cached = true,
         }
     end
 
@@ -146,26 +126,41 @@ local function package_to_release(package_id, package_version)
             note = "Visual Studio " .. year .. " Build Tools" .. (package_version ~= "" and (" (" .. package_version .. ")") or ""),
             major = known_major_for_year(year),
             winget = package_id,
-            discovered = true,
+            cached = true,
         }
     end
 
     return nil
 end
 
-local function parse_winget_search(output)
+local function parse_cache_line(line)
+    local version, package_id, package_version = tostring(line or ""):match("^([^\t]+)\t([^\t]+)\t?(.*)$")
+    if package_id == nil then
+        return nil
+    end
+
+    version = tostring(version or ""):match("^%s*(.-)%s*$")
+    package_id = tostring(package_id or ""):match("^%s*(.-)%s*$")
+    package_version = tostring(package_version or ""):match("^%s*(.-)%s*$")
+
+    local release = package_to_release(package_id, package_version)
+    if release ~= nil then
+        release.version = version
+
+        if version:match("^%d%d%d%d$") then
+            release.note = "Visual Studio " .. version .. " Build Tools" .. (package_version ~= "" and (" (" .. package_version .. ")") or "")
+            release.major = known_major_for_year(version)
+            release.channel = release.channel == "current" and "stable" or release.channel
+        end
+    end
+    return release
+end
+
+local function parse_cache(body)
     local releases = {}
 
-    for line in tostring(output):gmatch("[^\r\n]+") do
-        local package_id = line:match("(Microsoft%.VisualStudio%.%d%d%d%d%.BuildTools)")
-        if package_id == nil then
-            package_id = line:match("(Microsoft%.VisualStudio%.BuildTools)")
-        end
-
-        if package_id ~= nil then
-            local after_id = line:match(package_id:gsub("%.", "%%.") .. "%s+([^%s]+)") or ""
-            add_unique(releases, package_to_release(package_id, after_id))
-        end
+    for line in tostring(body or ""):gmatch("[^\r\n]+") do
+        add_unique(releases, parse_cache_line(line))
     end
 
     return releases
@@ -185,36 +180,32 @@ local function sort_releases(releases)
     end)
 end
 
-function M.discover()
-    if discovered_cache ~= nil then
-        return discovered_cache
+function M.cached()
+    if cached_releases ~= nil then
+        return cached_releases
     end
 
-    discovered_cache = {}
+    cached_releases = {}
 
-    if not is_windows() or not command_exists("winget") then
-        return discovered_cache
+    local ok, http = pcall(require, "http")
+    if not ok or http == nil then
+        return cached_releases
     end
 
-    local command = table.concat({
-        "winget", "search",
-        "--source", "winget",
-        "--id", "Microsoft.VisualStudio",
-        "--accept-source-agreements",
-        "2>NUL",
-    }, " ")
+    local resp, err = http.get({
+        url = CACHE_URL,
+        headers = {
+            ["User-Agent"] = "verzly-mise-vsbuildtools",
+        },
+    })
 
-    local handle = io.popen(command)
-    if handle == nil then
-        return discovered_cache
+    if err ~= nil or resp == nil or resp.status_code ~= 200 then
+        return cached_releases
     end
 
-    local output = handle:read("*a") or ""
-    handle:close()
-
-    discovered_cache = parse_winget_search(output)
-    sort_releases(discovered_cache)
-    return discovered_cache
+    cached_releases = parse_cache(resp.body)
+    sort_releases(cached_releases)
+    return cached_releases
 end
 
 function M.releases()
@@ -224,7 +215,7 @@ function M.releases()
         add_unique(releases, clone(release))
     end
 
-    for _, release in ipairs(M.discover()) do
+    for _, release in ipairs(M.cached()) do
         add_unique(releases, release)
     end
 

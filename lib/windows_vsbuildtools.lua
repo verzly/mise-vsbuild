@@ -1,12 +1,12 @@
 local env = require("lib/env")
-local helpers = require("lib/helpers")
+local helpers = require("lib/vsbuildtools_helpers")
 local messages = require("lib/messages")
-local system = require("lib/system")
+local system = require("lib/tools")
 
 local M = {}
 
 local INSTALL_SUCCESS_CODES = { 0, 1641, 3010 }
-local DEFAULT_WORKLOAD = "Microsoft.VisualStudio.Workload.VCTools"
+local MSVC_PROFILE_ID = "Microsoft.VisualStudio.Workload.VCTools"
 
 local function append_vs_args(args, name, values)
     for _, value in ipairs(values) do
@@ -32,7 +32,7 @@ local function make_vs_args(install_path)
         install_path,
     }
 
-    append_vs_args(args, "--add", { DEFAULT_WORKLOAD })
+    append_vs_args(args, "--add", { MSVC_PROFILE_ID })
     table.insert(args, "--includeRecommended")
 
     return args

@@ -1,13 +1,15 @@
 --[[
-Do not change anything in this file.
-It documents the objects injected by mise/vfox for IDE hints while developing the plugin.
---]]
+Do not change any thing in the current file,
+it's just there to show what objects are injected by verzly/mise-vsbuildtools and what they do.
+
+It's just handy when developing plugins, IDE can use this object for code hints!
+ --]]
 RUNTIME = {
-    --- Operating system type at runtime (windows, linux, darwin)
+    --- Operating system type at runtime (Windows, Linux, Darwin)
     osType = "",
     --- Operating system architecture at runtime (amd64, arm64, etc.)
     archType = "",
-    --- mise runtime version
+    --- verzly/mise-vsbuildtools runtime version
     version = "",
     --- Plugin directory
     pluginDirPath = "",

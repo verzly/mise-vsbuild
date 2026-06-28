@@ -1,0 +1,164 @@
+name: Update VS Build Tools Versions
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  update-versions:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+      issues: write
+
+    steps:
+      - name: Checkout default branch (for repo access)
+        uses: actions/checkout@v4
+
+      - name: Setup cache branch
+        shell: pwsh
+        run: |
+          git fetch origin cache 2>$null
+
+          $exists = git ls-remote --exit-code origin cache 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            git checkout cache
+          } else {
+            Write-Host 'Cache branch does not exist, creating orphan...'
+            git checkout --orphan cache
+            git rm -rf . 2>$null
+            git clean -fd 2>$null
+            New-Item -ItemType File -Path versions.txt -Force | Out-Null
+            git add versions.txt
+            git config user.name 'github-actions[bot]'
+            git config user.email 'github-actions[bot]@users.noreply.github.com'
+            git commit -m 'chore: init cache branch'
+            git push origin cache
+          }
+
+      - name: Fetch Visual Studio Build Tools packages from WinGet
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $oldVersions = @()
+          if (Test-Path versions.txt) {
+            $oldVersions = Get-Content versions.txt | Where-Object { $_.Trim() -ne '' }
+          }
+
+          $output = winget search --source winget --id Microsoft.VisualStudio --accept-source-agreements
+          $packages = @{}
+
+          foreach ($line in $output) {
+            if ($line -match '(Microsoft\.VisualStudio\.BuildTools)\s+([^\s]+)') {
+              $packages['current'] = "current`tMicrosoft.VisualStudio.BuildTools`t$($Matches[2])"
+            }
+
+            if ($line -match '(Microsoft\.VisualStudio\.(\d{4})\.BuildTools)\s+([^\s]+)') {
+              $packages[$Matches[2]] = "$($Matches[2])`t$($Matches[1])`t$($Matches[3])"
+            }
+          }
+
+          $known = @(
+            "current`tMicrosoft.VisualStudio.BuildTools`t",
+            "2026`tMicrosoft.VisualStudio.BuildTools`t",
+            "2022`tMicrosoft.VisualStudio.2022.BuildTools`t",
+            "2019`tMicrosoft.VisualStudio.2019.BuildTools`t",
+            "2017`tMicrosoft.VisualStudio.2017.BuildTools`t"
+          )
+
+          foreach ($line in $known) {
+            $version = $line.Split("`t")[0]
+            if (-not $packages.ContainsKey($version)) {
+              $packages[$version] = $line
+            }
+          }
+
+          $versions = @('current') + (
+            $packages.Keys |
+              Where-Object { $_ -match '^\d{4}$' } |
+              Sort-Object {[int]$_} -Descending
+          )
+
+          $lines = foreach ($version in $versions) { $packages[$version] }
+          Set-Content -Path versions.txt -Value $lines -Encoding utf8
+
+          $oldSet = @{}
+          foreach ($line in $oldVersions) {
+            $parts = $line.Split("`t")
+            if ($parts.Count -gt 0 -and $parts[0] -match '^\d{4}$') {
+              $oldSet[$parts[0]] = $true
+            }
+          }
+
+          $newVersions = @()
+          if ($oldVersions.Count -gt 0) {
+            foreach ($version in $versions) {
+              if ($version -match '^\d{4}$' -and -not $oldSet.ContainsKey($version)) {
+                $newVersions += $version
+              }
+            }
+          }
+
+          Set-Content -Path new-vsbuildtools-versions.txt -Value $newVersions -Encoding utf8
+          Write-Host "Cached $($lines.Count) Visual Studio Build Tools release lines."
+
+      - name: Commit to cache branch if changed
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add versions.txt
+
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host 'No changes, skipping commit.'
+          } else {
+            git commit -m 'chore: bump vsbuildtools versions cache'
+            git push origin cache
+          }
+
+      - name: Open package maintenance issues
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          if (-not (Test-Path new-vsbuildtools-versions.txt)) {
+            Write-Host 'No new Visual Studio Build Tools versions detected.'
+            exit 0
+          }
+
+          $versions = Get-Content new-vsbuildtools-versions.txt | Where-Object { $_.Trim() -ne '' }
+          if ($versions.Count -eq 0) {
+            Write-Host 'No new Visual Studio Build Tools versions detected.'
+            exit 0
+          }
+
+          foreach ($version in $versions) {
+            $title = "Review Visual Studio Build Tools $version installer profile"
+            $existing = gh issue list --state open --search "$title in:title" --json title | ConvertFrom-Json | Where-Object { $_.title -eq $title }
+            if ($existing) {
+              Write-Host "Issue already exists: $title"
+              continue
+            }
+
+            $body = @"
+            The Visual Studio Build Tools versions cache detected a new release line: $version.
+
+            Please review whether the fixed install profile in ``lib/windows_vsbuildtools.lua`` still matches the supported MSVC Build Tools setup.
+
+            Focus areas:
+            - WinGet package ID
+            - Visual Studio Installer profile behavior
+            - ``--installPath`` support
+            - generated helper commands
+
+            This issue was opened automatically by the versions cache workflow.
+            "@
+
+            $bodyPath = New-TemporaryFile
+            Set-Content -Path $bodyPath -Value $body -Encoding utf8
+            gh issue create --title $title --body-file $bodyPath
+            Remove-Item $bodyPath -Force
+          }

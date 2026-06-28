@@ -1,8 +1,8 @@
-local versions = require("lib/versions")
+local versions = require("lib/vsbuildtools_versions")
 
 --- Returns available Visual Studio Build Tools release lines.
---- Known releases are always included. On Windows, when winget is available,
---- additional Microsoft.VisualStudio.*.BuildTools packages are discovered.
+--- Known releases are always included. Additional Microsoft.VisualStudio.*.BuildTools
+--- package lines may be loaded from the repository cache branch.
 --- @param ctx table Context provided by mise/vfox
 --- @return table Available versions
 function PLUGIN:Available(ctx)
@@ -15,7 +15,7 @@ function PLUGIN:Available(ctx)
             addition = {
                 { name = "vs", version = release.major or "auto" },
                 { name = "product", version = release.winget or "" },
-                { name = "source", version = release.discovered and "winget" or "built-in" },
+                { name = "source", version = release.cached and "cache" or "built-in" },
             },
         })
     end

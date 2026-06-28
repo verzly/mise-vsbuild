@@ -65,6 +65,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+          # Create/update lightweight tag so tools can resolve it as a normal commit ref
           git tag -f latest "$TARGET_SHA"
           git push origin refs/tags/latest --force
 

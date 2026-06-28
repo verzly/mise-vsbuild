@@ -13,13 +13,13 @@ Supported release lines:
 - `2017` - Visual Studio 2017 Build Tools
 - future `YYYY` versions when Microsoft publishes a matching `Microsoft.VisualStudio.<YYYY>.BuildTools` WinGet package
 
-The plugin intentionally keeps configuration minimal. There is no install-method switch, no custom workload/component option, no dry-run mode, no optional-component toggle, and no `vcvars_ver` option. The installer profile is fixed so the plugin remains predictable, audit-friendly, and supportable.
+The plugin intentionally keeps configuration minimal. There is no install-method switch, no custom installer profile option, no dry-run mode, and no `vcvars_ver` option. The installer profile is fixed so the plugin remains predictable, audit-friendly, and supportable.
 
 - [How it works](#how-it-works)
   - [WinGet only](#winget-only)
   - [Install profile](#install-profile)
   - [Install path](#install-path)
-  - [System components](#system-components)
+  - [System files](#system-files)
   - [Helper commands](#helper-commands)
 - [Get started](#get-started)
   - [Install mise](#get-started)
@@ -51,10 +51,10 @@ hooks/mise_env.lua
 lib/env.lua
 lib/messages.lua
 lib/options.lua
-lib/versions.lua
-lib/system.lua
-lib/install.lua
-lib/helpers.lua
+lib/tools.lua
+lib/vsbuildtools_versions.lua
+lib/vsbuildtools_helpers.lua
+lib/windows_vsbuildtools.lua
 ```
 
 PowerShell script files are not required for the main install flow. Lua builds the WinGet command, passes Visual Studio Installer arguments safely, verifies the resulting instance, and writes helper commands into the installed tool directory.
@@ -66,16 +66,16 @@ The plugin always installs with WinGet. This keeps the install path predictable 
 Internally, the plugin runs a command equivalent to:
 
 ```powershell
-winget install -e --id Microsoft.VisualStudio.2022.BuildTools --override "--wait --quiet --norestart --installPath <mise-install-path> --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended" --accept-package-agreements --accept-source-agreements
+winget install -e --id Microsoft.VisualStudio.2022.BuildTools --override "--wait --quiet --norestart --installPath <mise-install-path> <fixed-msvc-profile>" --accept-package-agreements --accept-source-agreements
 ```
 
 The exact package ID depends on the requested version.
 
 ### Install profile
 
-The plugin installs the Visual C++ Build Tools workload with recommended components. This is intentionally not user-configurable.
+The plugin installs a fixed MSVC Build Tools profile. This is intentionally not user-configurable.
 
-Custom Visual Studio workloads and components are powerful, but they turn a version manager plugin into a general Visual Studio Installer wrapper. That makes the behavior harder to review, harder to document, and easier to misuse. This plugin focuses on the MSVC Build Tools toolchain profile needed by native builds, Node/Python/Rust packages with native dependencies, Tauri projects, CMake, MSBuild, and similar Windows build workflows.
+Custom Visual Studio Installer profiles are powerful, but they turn a version manager plugin into a general Visual Studio Installer wrapper. That makes the behavior harder to review, harder to document, and easier to misuse. This plugin focuses on the MSVC Build Tools toolchain profile needed by native builds, Node/Python/Rust packages with native dependencies, Tauri projects, CMake, MSBuild, and similar Windows build workflows.
 
 ### Install path
 
@@ -93,9 +93,9 @@ After opening a new terminal, installing `vsbuildtools@2026` will target a path 
 D:\program\mise\installs\vsbuildtools\2026
 ```
 
-### System components
+### System files
 
-Visual Studio Build Tools are not fully portable. Even when the main instance is installed into the mise install path, Microsoft installers may still create registry entries and install shared components, Windows SDK files, installer cache files, or runtime components outside that directory.
+Visual Studio Build Tools are not fully portable. Even when the main instance is installed into the mise install path, Microsoft installers may still create registry entries and install shared files, Windows SDK files, installer cache files, or runtime files outside that directory.
 
 This is expected Windows behavior. The plugin manages the selected Build Tools instance path, but it cannot make Visual Studio Build Tools a completely portable tool.
 
@@ -287,11 +287,11 @@ Common Visual Studio Installer exit codes include `740` for elevation required, 
 
 ## Known Issues
 
-Visual Studio Build Tools are not fully portable. Some shared Microsoft components, registry entries, installer metadata, SDK files, or caches may be written outside the mise install directory.
+Visual Studio Build Tools are not fully portable. Some shared Microsoft files, registry entries, installer metadata, SDK files, or caches may be written outside the mise install directory.
 
 Visual Studio Installer may require elevation even when launched through mise. Run the terminal as Administrator if installation fails due to permissions.
 
-The plugin does not expose custom workload/component configuration. That is intentional. The maintained install profile is the MSVC C++ Build Tools profile with recommended components.
+The plugin does not expose custom Visual Studio Installer profile configuration. That is intentional. The maintained install profile is the fixed MSVC Build Tools profile.
 
 The legacy `Microsoft.BuildTools2015` WinGet package is not treated as a `vsbuildtools@2015` version because it is not the same install model as modern Visual Studio Build Tools and does not provide the same mise-managed instance layout.
 
