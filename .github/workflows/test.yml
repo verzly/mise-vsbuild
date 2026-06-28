@@ -63,12 +63,19 @@ jobs:
           "MISE_CACHE_DIR=$miseCacheDir" | Add-Content -Path $env:GITHUB_ENV -Encoding utf8
           "MISE_TRUSTED_CONFIG_PATHS=${{ github.workspace }}" | Add-Content -Path $env:GITHUB_ENV -Encoding utf8
           "TEST_VERSION=$testVersion" | Add-Content -Path $env:GITHUB_ENV -Encoding utf8
+          "MISE_YES=1" | Add-Content -Path $env:GITHUB_ENV -Encoding utf8
+          "MISE_COLOR=never" | Add-Content -Path $env:GITHUB_ENV -Encoding utf8
 
-      - name: Install mise
+      - name: Setup mise
         uses: jdx/mise-action@v4
         with:
           install: false
           cache: false
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify mise setup
+        shell: pwsh
+        run: mise --version
 
       - name: Register plugin from PR source
         shell: pwsh
