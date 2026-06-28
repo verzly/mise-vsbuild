@@ -6,7 +6,7 @@ local known_releases = {
         note = "Visual Studio Build Tools current channel",
         major = "current",
         winget = "Microsoft.VisualStudio.BuildTools",
-        bootstrapper = "",
+        bootstrapper = "https://aka.ms/vs/stable/vs_buildtools.exe",
         channel = "current",
     },
     {
@@ -14,28 +14,39 @@ local known_releases = {
         note = "Visual Studio 2026 Build Tools",
         major = "18",
         winget = "Microsoft.VisualStudio.BuildTools",
-        bootstrapper = "https://aka.ms/vs/18/release/vs_BuildTools.exe",
+        bootstrapper = "https://aka.ms/vs/stable/vs_buildtools.exe",
+        channel = "stable",
     },
     {
         version = "2022",
         note = "Visual Studio 2022 Build Tools",
         major = "17",
         winget = "Microsoft.VisualStudio.2022.BuildTools",
-        bootstrapper = "https://aka.ms/vs/17/release/vs_BuildTools.exe",
+        bootstrapper = "https://aka.ms/vs/17/release/vs_buildtools.exe",
     },
     {
         version = "2019",
         note = "Visual Studio 2019 Build Tools",
         major = "16",
         winget = "Microsoft.VisualStudio.2019.BuildTools",
-        bootstrapper = "https://aka.ms/vs/16/release/vs_BuildTools.exe",
+        bootstrapper = "https://aka.ms/vs/16/release/vs_buildtools.exe",
     },
     {
         version = "2017",
         note = "Visual Studio 2017 Build Tools",
         major = "15",
         winget = "Microsoft.VisualStudio.2017.BuildTools",
-        bootstrapper = "https://aka.ms/vs/15/release/vs_BuildTools.exe",
+        bootstrapper = "https://aka.ms/vs/15/release/vs_buildtools.exe",
+    },
+    {
+        version = "2015",
+        note = "Visual Studio 2015 v140 toolset via Visual Studio Build Tools current channel",
+        major = "14",
+        winget = "Microsoft.VisualStudio.BuildTools",
+        bootstrapper = "https://aka.ms/vs/stable/vs_buildtools.exe",
+        default_components = { "Microsoft.VisualStudio.Component.VC.140" },
+        vcvars_ver = "14.0",
+        compatibility = true,
     },
 }
 
@@ -43,8 +54,6 @@ local aliases = {
     latest = "current",
     stable = "current",
     current = "current",
-    edge = "current",
-    preview = "current",
     ["18"] = "2026",
     ["18.0"] = "2026",
     ["26"] = "2026",
@@ -56,6 +65,8 @@ local aliases = {
     ["19"] = "2019",
     ["15"] = "2017",
     ["15.0"] = "2017",
+    ["14"] = "2015",
+    ["14.0"] = "2015",
 }
 
 local discovered_cache = nil
@@ -91,7 +102,15 @@ end
 local function clone(release)
     local out = {}
     for k, v in pairs(release) do
-        out[k] = v
+        if type(v) == "table" then
+            local nested = {}
+            for nk, nv in pairs(v) do
+                nested[nk] = nv
+            end
+            out[k] = nested
+        else
+            out[k] = v
+        end
     end
     return out
 end
@@ -112,8 +131,6 @@ local function add_unique(releases, release)
 
     local existing = by_version(releases, release.version)
     if existing ~= nil then
-        -- Prefer the built-in metadata for known release lines because it can include
-        -- bootstrapper URLs and short aliases. Discovery is used to add future lines.
         if existing.discovered and not release.discovered then
             for k, v in pairs(release) do
                 existing[k] = v
@@ -157,7 +174,7 @@ local function package_to_release(package_id, package_version)
             note = "Visual Studio Build Tools current channel" .. (package_version ~= "" and (" (" .. package_version .. ")") or ""),
             major = "current",
             winget = package_id,
-            bootstrapper = "",
+            bootstrapper = "https://aka.ms/vs/stable/vs_buildtools.exe",
             channel = "current",
             discovered = true,
         }
@@ -211,7 +228,7 @@ local function sort_releases(releases)
 end
 
 function M.discovery_enabled()
-    return not truthy(os.getenv("VSBUILD_DISABLE_DISCOVERY"))
+    return not truthy(os.getenv("VSBUILDTOOLS_DISABLE_DISCOVERY"))
 end
 
 function M.discover()
@@ -275,9 +292,6 @@ function M.resolve(version)
         end
     end
 
-    -- Future year support. This intentionally allows new year-specific
-    -- Microsoft.VisualStudio.<YEAR>.BuildTools package IDs without requiring a
-    -- plugin release. If the package does not exist, winget will fail clearly.
     if version:match("^%d%d%d%d$") then
         return {
             version = version,

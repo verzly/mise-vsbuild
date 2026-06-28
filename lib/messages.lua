@@ -11,7 +11,7 @@ end
 function M.section(title)
     print("")
     print("  " .. title)
-    print("  ────────────────────────────────────────────────────")
+    print("  ----------------------------------------------------")
 end
 
 function M.note(message)
@@ -23,7 +23,7 @@ function M.warning(message)
 end
 
 function M.see(anchor)
-    return "→ See: https://github.com/verzly/mise-vsbuild#" .. anchor .. "\n"
+    return "See: https://github.com/verzly/mise-vsbuildtools#" .. anchor .. "\n"
 end
 
 function M.windows_only()
@@ -31,15 +31,15 @@ function M.windows_only()
 end
 
 function M.admin_tip()
-    return "💡 Tip: Run the terminal as Administrator if Visual Studio Installer or winget requests elevation.\n"
+    return "Tip: Run the terminal as Administrator if Visual Studio Installer or winget requests elevation.\n"
 end
 
 function M.verbose_tip(version)
-    return "💡 Tip: Set VSBUILD_VERBOSE=1 and retry: mise install vsbuild@" .. tostring(version) .. "\n"
+    return "Tip: Set VSBUILDTOOLS_VERBOSE=1 and retry: mise install vsbuildtools@" .. tostring(version) .. "\n"
 end
 
 function M.manual_tip(command)
-    return "💡 Tip: Run '" .. command .. "' manually to confirm it works.\n"
+    return "Tip: Run '" .. command .. "' manually to confirm it works.\n"
 end
 
 return M

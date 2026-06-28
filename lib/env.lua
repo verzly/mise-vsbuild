@@ -14,7 +14,7 @@ local function value_or(name, default)
 end
 
 local function quiet_redirect()
-    if is_enabled("VSBUILD_VERBOSE") or is_enabled("MISE_VERBOSE") then
+    if is_enabled("VSBUILDTOOLS_VERBOSE") or is_enabled("MISE_VERBOSE") then
         return ""
     end
 
@@ -25,14 +25,15 @@ local function quiet_redirect()
     return " > /dev/null 2>&1"
 end
 
-M.VERBOSE = is_enabled("VSBUILD_VERBOSE") or is_enabled("MISE_VERBOSE")
+M.VERBOSE = is_enabled("VSBUILDTOOLS_VERBOSE") or is_enabled("MISE_VERBOSE")
 M.QUIET = quiet_redirect()
-M.WORKLOADS = value_or("VSBUILD_WORKLOADS", "Microsoft.VisualStudio.Workload.VCTools")
-M.COMPONENTS = value_or("VSBUILD_COMPONENTS", "")
-M.INSTALL_METHOD = value_or("VSBUILD_INSTALL_METHOD", "winget")
-M.BOOTSTRAPPER_URL = value_or("VSBUILD_BOOTSTRAPPER_URL", "")
-M.INCLUDE_RECOMMENDED = not is_enabled("VSBUILD_NO_RECOMMENDED")
-M.INCLUDE_OPTIONAL = is_enabled("VSBUILD_INCLUDE_OPTIONAL")
-M.DRY_RUN = is_enabled("VSBUILD_DRY_RUN")
+M.WORKLOADS = value_or("VSBUILDTOOLS_WORKLOADS", "Microsoft.VisualStudio.Workload.VCTools")
+M.COMPONENTS = value_or("VSBUILDTOOLS_COMPONENTS", "")
+M.INSTALL_METHOD = value_or("VSBUILDTOOLS_INSTALL_METHOD", "winget")
+M.BOOTSTRAPPER_URL = value_or("VSBUILDTOOLS_BOOTSTRAPPER_URL", "")
+M.INCLUDE_RECOMMENDED = not is_enabled("VSBUILDTOOLS_NO_RECOMMENDED")
+M.INCLUDE_OPTIONAL = is_enabled("VSBUILDTOOLS_INCLUDE_OPTIONAL")
+M.VCVARS_VER = value_or("VSBUILDTOOLS_VCVARS_VER", "")
+M.DRY_RUN = is_enabled("VSBUILDTOOLS_DRY_RUN")
 
 return M

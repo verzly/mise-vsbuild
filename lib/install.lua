@@ -5,6 +5,8 @@ local system = require("lib/system")
 
 local M = {}
 
+local INSTALL_SUCCESS_CODES = { 0, 1641, 3010 }
+
 local function split_list(value)
     local result = {}
     value = tostring(value or "")
@@ -17,6 +19,20 @@ local function split_list(value)
     return result
 end
 
+local function append_unique(target, values)
+    local seen = {}
+    for _, value in ipairs(target) do
+        seen[value] = true
+    end
+
+    for _, value in ipairs(values or {}) do
+        if value ~= nil and value ~= "" and not seen[value] then
+            table.insert(target, value)
+            seen[value] = true
+        end
+    end
+end
+
 local function append_vs_args(args, name, values)
     for _, value in ipairs(values) do
         table.insert(args, name)
@@ -25,10 +41,8 @@ local function append_vs_args(args, name, values)
 end
 
 local function override_arg(value)
-    -- The override string is consumed by winget and then passed to the VS installer.
-    -- Use quotes only when needed to keep normal component/workload IDs readable.
     value = tostring(value or "")
-    if value:find("%s") then
+    if value:find('%s') then
         return '"' .. value:gsub('"', '\\"') .. '"'
     end
     return value
@@ -65,23 +79,31 @@ local function make_override(args)
     return table.concat(values, " ")
 end
 
-local function join_command(parts)
-    local values = {}
-    for _, part in ipairs(parts) do
-        table.insert(values, system.quote(part))
-    end
-    return table.concat(values, " ")
-end
-
-local function run(command)
+local function run_command(command, success_codes)
     if env.VERBOSE then
         print("> " .. command)
     end
 
-    local status = os.execute(command)
-    if not system.cmd_status_ok(status) then
-        error("Command failed: " .. command)
+    local ok, code = system.execute_command(command, success_codes)
+    if not ok then
+        error("Command failed with exit code " .. tostring(code) .. ": " .. command)
     end
+
+    return code
+end
+
+local function run_windows_program(program, args, success_codes)
+    local command = system.windows_program_command(program, args)
+    if env.VERBOSE then
+        print("> " .. system.render_windows_program(program, args))
+    end
+
+    local ok, code = system.execute_command(command, success_codes)
+    if not ok then
+        error("Command failed with exit code " .. tostring(code) .. ": " .. system.render_windows_program(program, args))
+    end
+
+    return code
 end
 
 local function write_dry_run(plan)
@@ -94,17 +116,21 @@ local function write_dry_run(plan)
 end
 
 local function direct_bootstrapper_path(version)
-    return "%TEMP%\\vs_BuildTools_" .. tostring(version) .. ".exe"
+    return system.join_path(system.temp_dir(), "vs_BuildTools_" .. tostring(version) .. ".exe")
 end
 
 local function direct_download_command(url, target)
-    return table.concat({
-        "powershell",
-        "-NoProfile",
-        "-ExecutionPolicy", "Bypass",
-        "-Command",
-        system.quote("Invoke-WebRequest -Uri " .. url .. " -OutFile " .. target),
-    }, " ")
+    local script = table.concat({
+        "$ErrorActionPreference = 'Stop'",
+        "try { Invoke-WebRequest -Uri " .. system.powershell_quote(url) .. " -OutFile " .. system.powershell_quote(target) .. "; exit 0 }",
+        "catch { Write-Error $_; exit 1 }",
+    }, "; ")
+
+    return system.powershell_command(script)
+end
+
+local function install_method()
+    return tostring(env.INSTALL_METHOD or "winget"):lower()
 end
 
 function M.install(release, install_path)
@@ -119,58 +145,79 @@ function M.install(release, install_path)
         table.insert(workloads, "Microsoft.VisualStudio.Workload.VCTools")
     end
 
+    append_unique(components, release.default_components or {})
+
     local bootstrapper = env.BOOTSTRAPPER_URL
     if bootstrapper == "" then
         bootstrapper = release.bootstrapper or ""
     end
 
-    messages.section("🧰 Visual Studio Build Tools Installer for mise")
+    local method = install_method()
+
+    messages.section("Visual Studio Build Tools Installer for mise")
     messages.step("version", "Visual Studio Build Tools " .. tostring(release.version))
     messages.step("path", install_path)
+
+    if release.vcvars_ver ~= nil and release.vcvars_ver ~= "" then
+        messages.step("toolset", "MSVC " .. tostring(release.vcvars_ver))
+    end
 
     system.mkdir(install_path)
 
     if system.test_vs_instance(install_path) then
         messages.step("existing", "valid Build Tools instance found, refreshing helper commands")
-        helpers.install(install_path, release.version)
+        helpers.install(install_path, release.version, release.vcvars_ver)
         return
     end
 
     local vs_args = make_vs_args(install_path, workloads, components, env.INCLUDE_RECOMMENDED, env.INCLUDE_OPTIONAL)
-    local command
+    local command_preview
+    local execute
 
-    if env.INSTALL_METHOD == "winget" then
+    if method == "winget" then
         if release.winget == nil or release.winget == "" then
             error("WinGet install method requires a package ID.")
         end
 
+        if not system.command_exists("winget") then
+            error("winget was not found. Install Windows Package Manager or set VSBUILDTOOLS_INSTALL_METHOD=direct.")
+        end
+
         local override = make_override(vs_args)
-        command = join_command({
-            "winget",
+        local winget_args = {
             "install",
             "-e",
             "--id", release.winget,
             "--override", override,
             "--accept-package-agreements",
             "--accept-source-agreements",
-        })
+        }
+
+        command_preview = system.render_windows_program("winget", winget_args)
+        execute = function()
+            return run_windows_program("winget", winget_args, INSTALL_SUCCESS_CODES)
+        end
         messages.step("installer", "winget package " .. release.winget)
-    elseif env.INSTALL_METHOD == "direct" then
+    elseif method == "direct" then
         if bootstrapper == "" then
-            error("Direct install method requires VSBUILD_BOOTSTRAPPER_URL for this release.")
+            error("Direct install method requires VSBUILDTOOLS_BOOTSTRAPPER_URL for this release.")
         end
 
         local target = direct_bootstrapper_path(release.version)
         if not system.exists(target) then
             messages.step("download", target)
-            run(direct_download_command(bootstrapper, target))
+            local download_command = direct_download_command(bootstrapper, target)
+            if env.DRY_RUN then
+                command_preview = download_command .. "\n" .. system.render_windows_program(target, vs_args)
+            else
+                run_command(download_command)
+            end
         end
 
-        local parts = { target }
-        for _, arg in ipairs(vs_args) do
-            table.insert(parts, arg)
+        command_preview = command_preview or system.render_windows_program(target, vs_args)
+        execute = function()
+            return run_windows_program(target, vs_args, INSTALL_SUCCESS_CODES)
         end
-        command = join_command(parts)
         messages.step("installer", "direct bootstrapper " .. bootstrapper)
     else
         error("Unsupported install method: " .. tostring(env.INSTALL_METHOD))
@@ -180,24 +227,27 @@ function M.install(release, install_path)
         write_dry_run({
             version = release.version,
             install_path = install_path,
-            install_method = env.INSTALL_METHOD,
-            command = command,
+            install_method = method,
+            command = command_preview,
         })
-        helpers.install(install_path, release.version)
+        helpers.install(install_path, release.version, release.vcvars_ver)
         return
     end
 
-    run(command)
+    local code = execute()
+    if code == 1641 or code == 3010 then
+        messages.warning("Visual Studio Installer completed successfully but Windows reported that a reboot is required.")
+    end
 
     if not system.test_vs_instance(install_path) then
         error("Visual Studio Build Tools installation did not produce a usable instance at: " .. install_path)
     end
 
-    helpers.install(install_path, release.version)
+    helpers.install(install_path, release.version, release.vcvars_ver)
     messages.step("helpers", system.join_path(install_path, "bin"))
-    print("  ────────────────────────────────────────────────────")
+    print("  ----------------------------------------------------")
     print("  Visual Studio Build Tools installation complete")
-    print("  Try: vsbuild-info")
+    print("  Try: vsbuildtools-info")
     print("")
 end
 

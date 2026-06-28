@@ -2,6 +2,18 @@ local M = {}
 
 local sep = package.config:sub(1, 1)
 
+local function normalize_success_codes(success_codes)
+    local codes = { [0] = true }
+
+    if success_codes ~= nil then
+        for _, code in ipairs(success_codes) do
+            codes[tonumber(code) or code] = true
+        end
+    end
+
+    return codes
+end
+
 function M.is_windows()
     if RUNTIME ~= nil and RUNTIME.osType ~= nil then
         return RUNTIME.osType == "windows"
@@ -15,7 +27,7 @@ function M.join_path(...)
     for i = 2, #parts do
         local part = tostring(parts[i] or "")
         if part ~= "" then
-            if path:sub(-1) ~= "\\" and path:sub(-1) ~= "/" then
+            if path ~= "" and path:sub(-1) ~= "\\" and path:sub(-1) ~= "/" then
                 path = path .. sep
             end
             path = path .. part
@@ -29,18 +41,25 @@ function M.parent_dir(path)
 end
 
 function M.mkdir(path)
-    if M.is_windows() then
-        return os.execute('if not exist "' .. path .. '" mkdir "' .. path .. '"')
+    if path == nil or path == "" or path == "." then
+        return true
     end
-    return os.execute('mkdir -p "' .. path .. '"')
+
+    if M.is_windows() then
+        local ok = M.execute_command('if not exist "' .. tostring(path):gsub('"', '\\"') .. '" mkdir "' .. tostring(path):gsub('"', '\\"') .. '"')
+        return ok
+    end
+
+    local ok = M.execute_command('mkdir -p "' .. tostring(path):gsub('"', '\\"') .. '"')
+    return ok
 end
 
 function M.command_exists(command)
     local check = M.is_windows()
         and ('where.exe ' .. command .. ' > NUL 2>&1')
         or ('command -v ' .. command .. ' > /dev/null 2>&1')
-    local ok = os.execute(check)
-    return ok == true or ok == 0
+    local ok = M.execute_command(check)
+    return ok
 end
 
 function M.read_all(command)
@@ -71,19 +90,108 @@ function M.write_file(path, content)
     file:close()
 end
 
+function M.temp_dir()
+    return os.getenv("TEMP") or os.getenv("TMP") or "."
+end
+
 function M.quote(value)
     value = tostring(value or "")
     if value == "" then
         return '""'
     end
 
-    -- Good enough for the cmd.exe calls produced by this plugin. The generated
-    -- arguments are controlled by the plugin and should not contain literal quotes.
     if value:find('[%s&()^!%%]') or value:find('"') then
         return '"' .. value:gsub('"', '\\"') .. '"'
     end
 
     return value
+end
+
+function M.powershell_quote(value)
+    value = tostring(value or "")
+
+    if value:find("[%z\r\n]") then
+        error("Unsupported Windows command argument: " .. value)
+    end
+
+    return "'" .. value:gsub("'", "''") .. "'"
+end
+
+function M.windows_cmd_quote(value)
+    value = tostring(value or "")
+
+    if value:find("[%z\r\n\"]") then
+        error("Unsupported Windows command script: " .. value)
+    end
+
+    return '"' .. value:gsub("%%", "%%%%") .. '"'
+end
+
+function M.render_windows_program(program, args)
+    args = args or {}
+
+    local values = { M.quote(program) }
+    for _, arg in ipairs(args) do
+        table.insert(values, M.quote(arg))
+    end
+
+    return table.concat(values, " ")
+end
+
+function M.windows_program_command(program, args)
+    args = args or {}
+
+    local command = { "&", M.powershell_quote(program) }
+    for _, arg in ipairs(args) do
+        command[#command + 1] = M.powershell_quote(arg)
+    end
+
+    local script = table.concat(command, " ") .. "; exit $LASTEXITCODE"
+
+    return table.concat({
+        "powershell",
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-Command",
+        M.windows_cmd_quote(script),
+    }, " ")
+end
+
+function M.powershell_command(script)
+    return table.concat({
+        "powershell",
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-Command",
+        M.windows_cmd_quote(script),
+    }, " ")
+end
+
+function M.execute_command(command, success_codes)
+    local codes = normalize_success_codes(success_codes)
+    local first, kind, code = os.execute(command)
+
+    if first == true then
+        return true, 0
+    end
+
+    if type(first) == "number" then
+        return codes[first] == true, first
+    end
+
+    if kind == "exit" and type(code) == "number" then
+        return codes[code] == true, code
+    end
+
+    return false, code or first or kind or "unknown"
+end
+
+function M.execute_windows_program(program, args, success_codes)
+    return M.execute_command(M.windows_program_command(program, args), success_codes)
+end
+
+function M.execute_powershell(script, success_codes)
+    return M.execute_command(M.powershell_command(script), success_codes)
 end
 
 function M.cmd_status_ok(status)
@@ -101,7 +209,7 @@ function M.vs_installer_path()
 end
 
 function M.test_vs_instance(path)
-    return M.exists(M.join_path(path, "VC", "Auxiliary", "Build", "vcvars64.bat"))
+    return M.exists(M.join_path(path, "VC", "Auxiliary", "Build", "vcvarsall.bat"))
         and M.exists(M.join_path(path, "Common7", "Tools", "VsDevCmd.bat"))
 end
 

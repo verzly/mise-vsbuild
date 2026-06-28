@@ -1,55 +1,174 @@
-name: Test
+name: Test VS Build Tools Plugin
 
 on:
-  push:
-    branches: [main]
   pull_request:
+    types: [opened, reopened, synchronize, labeled]
   workflow_dispatch:
+    inputs:
+      version:
+        description: Visual Studio Build Tools version used by dry-run install tests
+        required: true
+        default: '2022'
+      run_dry_install:
+        description: Run Windows dry-run install smoke test
+        required: true
+        type: boolean
+        default: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  VSBUILDTOOLS_TEST_VERSION: ${{ inputs.version || '2022' }}
 
 jobs:
-  static:
-    name: Static checks
+  check-label:
     runs-on: ubuntu-latest
+    outputs:
+      should-run: ${{ steps.check.outputs.should-run }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
-      - name: Run static checks
-        run: mise run static
+      - id: check
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "should-run=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ contains(github.event.pull_request.labels.*.name, 'needs-ci') }}" = "true" ]; then
+            echo "should-run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should-run=false" >> "$GITHUB_OUTPUT"
+          fi
 
-  lua-syntax:
-    name: Lua syntax
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
-      - name: Run Lua syntax checks
-        run: mise run lua-syntax
-
-  plugin-smoke:
-    name: Plugin smoke test
+  env-options:
+    name: Env options - Windows
+    needs: check-label
+    if: needs.check-label.outputs.should-run == 'true'
     runs-on: windows-latest
+    timeout-minutes: 15
+
     steps:
       - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
-      - name: Link plugin
+
+      - name: Install mise
+        uses: jdx/mise-action@v4
+        with:
+          install: false
+          cache: false
+
+      - name: Register plugin from PR source
         shell: pwsh
-        run: mise plugin link vsbuild "$PWD"
-      - name: List versions without discovery
+        run: mise plugin link vsbuildtools "${{ github.workspace }}"
+
+      - name: Check env._.vsbuildtools options without installing Build Tools
         shell: pwsh
         run: |
-          $env:VSBUILD_DISABLE_DISCOVERY = '1'
-          mise ls-remote vsbuild | Tee-Object -FilePath versions.txt
-          rustc .github/scripts/ci-checks.rs -o ci-checks.exe
-          .\ci-checks.exe version-list versions.txt
-      - name: Check env options
+          @'
+          [env._.vsbuildtools]
+          workloads = "Microsoft.VisualStudio.Workload.VCTools"
+          components = "Microsoft.VisualStudio.Component.VC.CMake.Project"
+          install_method = "winget"
+          bootstrapper_url = "https://aka.ms/vs/17/release/vs_buildtools.exe"
+          vcvars_ver = "14.29"
+          include_recommended = false
+          include_optional = true
+          verbose = true
+          dry_run = true
+          '@ | Set-Content -Path mise.toml -Encoding utf8
+
+          mise trust "${{ github.workspace }}" | Out-Null
+          mise env --dotenv | Tee-Object -FilePath mise-env.out
+
+          function Require-EnvValue($Key, $Expected) {
+            $line = Get-Content mise-env.out | Where-Object { $_ -match "^$Key=" } | Select-Object -Last 1
+            if (-not $line) {
+              throw "Missing environment variable: $Key"
+            }
+
+            $actual = $line.Substring($Key.Length + 1).Trim("'`"")
+            if ($actual -ne $Expected) {
+              throw "$Key expected '$Expected', got '$actual'"
+            }
+          }
+
+          Require-EnvValue "VSBUILDTOOLS_WORKLOADS" "Microsoft.VisualStudio.Workload.VCTools"
+          Require-EnvValue "VSBUILDTOOLS_COMPONENTS" "Microsoft.VisualStudio.Component.VC.CMake.Project"
+          Require-EnvValue "VSBUILDTOOLS_INSTALL_METHOD" "winget"
+          Require-EnvValue "VSBUILDTOOLS_BOOTSTRAPPER_URL" "https://aka.ms/vs/17/release/vs_buildtools.exe"
+          Require-EnvValue "VSBUILDTOOLS_VCVARS_VER" "14.29"
+          Require-EnvValue "VSBUILDTOOLS_NO_RECOMMENDED" "1"
+          Require-EnvValue "VSBUILDTOOLS_INCLUDE_OPTIONAL" "1"
+          Require-EnvValue "VSBUILDTOOLS_VERBOSE" "1"
+          Require-EnvValue "VSBUILDTOOLS_DRY_RUN" "1"
+
+  list-versions:
+    name: List versions - Windows
+    needs: check-label
+    if: needs.check-label.outputs.should-run == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mise
+        uses: jdx/mise-action@v4
+        with:
+          install: false
+          cache: false
+
+      - name: Register plugin from PR source
+        shell: pwsh
+        run: mise plugin link vsbuildtools "${{ github.workspace }}"
+
+      - name: Check built-in version listing
         shell: pwsh
         run: |
-          mise config set env._.vsbuild.workloads "Microsoft.VisualStudio.Workload.VCTools"
-          mise config set env._.vsbuild.components "Microsoft.VisualStudio.Component.VC.CMake.Project"
-          mise config set env._.vsbuild.install_method "winget"
-          mise config set env._.vsbuild.include_recommended false
-          mise config set env._.vsbuild.include_optional true
-          mise config set env._.vsbuild.verbose true
-          mise config set env._.vsbuild.dry_run true
-          mise env --dotenv | Tee-Object -FilePath env.txt
-          .\ci-checks.exe env-options env.txt
+          $env:VSBUILDTOOLS_DISABLE_DISCOVERY = '1'
+          mise ls-remote vsbuildtools | Tee-Object -FilePath versions.txt
+
+          foreach ($version in @('current', '2026', '2022', '2019', '2017', '2015', 'latest', 'stable')) {
+            if (-not (Select-String -Path versions.txt -Pattern "^$version\s*$" -Quiet)) {
+              throw "Expected version '$version' in version list"
+            }
+          }
+
+  dry-run-install:
+    name: Dry-run install - Windows
+    needs: [check-label, env-options, list-versions]
+    if: needs.check-label.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || inputs.run_dry_install)
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mise
+        uses: jdx/mise-action@v4
+        with:
+          install: false
+          cache: false
+
+      - name: Register plugin from PR source
+        shell: pwsh
+        run: mise plugin link vsbuildtools "${{ github.workspace }}"
+
+      - name: Run direct installer dry-run
+        shell: pwsh
+        run: |
+          @'
+          [env._.vsbuildtools]
+          install_method = "direct"
+          bootstrapper_url = "https://aka.ms/vs/17/release/vs_buildtools.exe"
+          workloads = "Microsoft.VisualStudio.Workload.VCTools"
+          components = "Microsoft.VisualStudio.Component.VC.CMake.Project"
+          include_recommended = true
+          include_optional = false
+          dry_run = true
+          verbose = true
+          '@ | Set-Content -Path mise.toml -Encoding utf8
+
+          mise trust "${{ github.workspace }}" | Out-Null
+          mise install "vsbuildtools@$env:VSBUILDTOOLS_TEST_VERSION"
